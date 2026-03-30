@@ -131,9 +131,9 @@ export class HUD {
             }
         }
 
-        // Draw Exit marker at grid [9, 9] (fixed open corridor in bottom area)
-        const exitCol = 9;
-        const exitRow = 9;
+        // Draw Exit marker at grid [17, 17] - bottom-right open cell in 20x20 dungeon
+        const exitCol = 17;
+        const exitRow = 17;
         this.ctx.save();
         this.ctx.fillStyle = '#00ff88';
         this.ctx.shadowBlur = 12;

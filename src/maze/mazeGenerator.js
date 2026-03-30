@@ -5,10 +5,10 @@ export class MazeGenerator {
         this.scene = scene;
         this.walls = [];
         this.wallBoundingBoxes = []; 
-        this.cellSize = 2.5; // Final narrow scale
-        this.gridSize = 12;
+        this.cellSize = 2.5;
+        this.gridSize = 20; // 12 -> 20: %100'den fazla büyüme (alan: 4x)
         this.mazeData = [];
-        this.torches = []; // For flickering effect
+        this.torches = [];
         
         this.initTextures();
         this.generate();
@@ -16,7 +16,6 @@ export class MazeGenerator {
 
     initTextures() {
         const loader = new THREE.TextureLoader();
-        // Use a more stone-like texture. Brick bump is greyscale and stony.
         this.wallTexture = loader.load('https://threejs.org/examples/textures/brick_bump.jpg');
         this.wallTexture.wrapS = THREE.RepeatWrapping;
         this.wallTexture.wrapT = THREE.RepeatWrapping;
@@ -24,47 +23,58 @@ export class MazeGenerator {
     }
 
     generate() {
-        console.log("Generating Medieval Dungeon...");
+        console.log("Generating Complex Medieval Dungeon (20x20)...");
 
+        // 20x20 karmaşık labirent - çok daha fazla yol, çıkmaz sokak ve yanıltıcı kavşak
+        // 0 = yol, 1 = duvar
+        // Çıkış: [17, 17] (sağ alt köşe)
+        // Başlangıç: [1, 1] (sol üst köşe)
         this.mazeData = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1],
-            [1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-            [1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
-            [1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1],
-            [1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-            [1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-            [1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1],
+            [1,0,1,0,1,0,1,0,1,0,1,1,1,0,1,0,1,1,0,1],
+            [1,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,1],
+            [1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,1],
+            [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+            [1,1,1,0,1,1,1,0,1,0,1,1,1,1,1,0,1,1,0,1],
+            [1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,1,0,1],
+            [1,0,1,1,1,0,1,1,1,1,1,0,1,0,1,1,0,1,0,1],
+            [1,0,1,0,0,0,1,0,0,0,1,0,1,0,0,0,0,1,0,1],
+            [1,0,1,0,1,1,1,0,1,0,1,0,1,1,1,1,1,1,0,1],
+            [1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1],
+            [1,1,1,0,1,0,1,1,1,1,1,1,1,0,1,1,1,0,1,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,1],
+            [1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,0,1,1,0,1],
+            [1,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,1],
+            [1,0,1,0,1,1,1,0,1,0,1,1,1,1,1,1,1,1,0,1],
+            [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,0,0,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
         ];
 
         const wallMat = new THREE.MeshPhongMaterial({ 
             map: this.wallTexture, 
             bumpMap: this.wallTexture,
-            color: 0x888888, // Grey stone blocks
+            color: 0x888888,
             shininess: 5,
             bumpScale: 0.1
         });
-        const floorMat = new THREE.MeshPhongMaterial({ color: 0x111111 }); // Plain dark grey
+        const floorMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
         const wallGeo = new THREE.BoxGeometry(this.cellSize, 4, this.cellSize);
+        const ceilingMat = new THREE.MeshPhongMaterial({ color: 0x050505 });
 
         for (let row = 0; row < this.gridSize; row++) {
             for (let col = 0; col < this.gridSize; col++) {
                 const x = (col - this.gridSize / 2) * this.cellSize;
                 const z = (row - this.gridSize / 2) * this.cellSize;
 
-                // Floor
                 const floorGeo = new THREE.PlaneGeometry(this.cellSize, this.cellSize);
                 const floor = new THREE.Mesh(floorGeo, floorMat);
                 floor.position.set(x, 0, z);
                 floor.rotation.x = -Math.PI / 2;
                 this.scene.add(floor);
 
-                // Ceiling
-                const ceiling = new THREE.Mesh(floorGeo, new THREE.MeshPhongMaterial({ color: 0x050505 }));
+                const ceiling = new THREE.Mesh(floorGeo, ceilingMat);
                 ceiling.position.set(x, 3.8, z);
                 ceiling.rotation.x = Math.PI / 2;
                 this.scene.add(ceiling);
@@ -83,15 +93,16 @@ export class MazeGenerator {
             }
         }
 
-        this.scene.add(new THREE.AmbientLight(0xffffff, 0.05)); 
+        // Ambient son derece düşük - sadece meşaleler aydınlatsın
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.04)); 
     }
 
     tryAddTorch(row, col, x, z) {
         const neighbors = [
             { r: -1, c: 0, offset: [0, 2.2, -this.cellSize/2 + 0.1], rot: [0, 0, 0] }, 
-            { r: 1, c: 0, offset: [0, 2.2, this.cellSize/2 - 0.1], rot: [0, Math.PI, 0] },
+            { r: 1,  c: 0, offset: [0, 2.2,  this.cellSize/2 - 0.1], rot: [0, Math.PI, 0] },
             { r: 0, c: -1, offset: [-this.cellSize/2 + 0.1, 2.2, 0], rot: [0, Math.PI/2, 0] },
-            { r: 0, c: 1, offset: [this.cellSize/2 - 0.1, 2.2, 0], rot: [0, -Math.PI/2, 0] }
+            { r: 0,  c: 1, offset: [ this.cellSize/2 - 0.1, 2.2, 0], rot: [0, -Math.PI/2, 0] }
         ];
 
         for (const n of neighbors) {
@@ -102,10 +113,10 @@ export class MazeGenerator {
                 const torchMat = new THREE.MeshBasicMaterial({ color: 0x442200 });
                 const torch = new THREE.Mesh(torchGeo, torchMat);
                 torch.position.set(x + n.offset[0], n.offset[1], z + n.offset[2]);
-                torch.rotation.set(0.4, n.rot[1], 0);
+                torch.rotation.set(0.4, n.rot[1], 0); // Direction-correct lean
                 this.scene.add(torch);
 
-                const light = new THREE.PointLight(0xff7700, 5, 12); // Reduced intensity
+                const light = new THREE.PointLight(0xff7700, 5, 12);
                 light.position.set(x + n.offset[0] * 0.95, n.offset[1] + 0.3, z + n.offset[2] * 0.95);
                 this.scene.add(light);
                 

@@ -4,11 +4,10 @@ export class PlayerController {
     constructor(camera, input, maze) {
         this.camera = camera;
         this.input = input;
-        this.maze = maze; // Reference for collisions
+        this.maze = maze;
         
-        // Logical position (Not the camera object, as the camera will move away in BREAK mode)
-        this.position = new THREE.Vector3(0, 1.7, 0); 
-        this.moveSpeed = 4.0;
+        this.position = new THREE.Vector3(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon
+        this.moveSpeed = 3.0; // %25 yavaşlatıldı (4.0 -> 3.0)
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
 
@@ -16,32 +15,37 @@ export class PlayerController {
         this.pitch = 0;
         this.yaw = 0;
         
+        this.isPointerLocked = false;
         this.setupPointerLock();
-        
-        // Character "Flashlight" (Personal Light)
-        this.flashlight = new THREE.PointLight(0xeef5ff, 4.5, 20);
-        this.flashlight.castShadow = true;
+        // Flashlight REMOVED - only wall torches illuminate
     }
 
     addToScene(scene) {
-        scene.add(this.flashlight);
+        // No personal flashlight
     }
 
     setupPointerLock() {
-        document.addEventListener('click', () => {
-             // Request Pointer Lock if not already locked
-             if (document.pointerLockElement !== document.body) {
-                document.body.requestPointerLock();
-            }
+        // Pointer lock is requested on click ONLY when game has started
+        // Use a flag so we don't interfere with the camera permission click
+        document.addEventListener('pointerlockchange', () => {
+            this.isPointerLocked = document.pointerLockElement === document.body;
         });
 
         document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === document.body) {
+            if (this.isPointerLocked) {
                 this.yaw -= e.movementX * this.lookSpeed;
                 this.pitch -= e.movementY * this.lookSpeed;
                 this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
-                // Only rotate camera if in POV (not transitioning or top-down)
-                // Actually, let's just let it rotate, but we will overwrite pos/rot in cameraSystem
+            }
+        });
+    }
+
+    // Called externally (from game.js) after game starts so it doesn't
+    // compete with camera permission click listener
+    enablePointerLock() {
+        document.addEventListener('click', () => {
+            if (!this.isPointerLocked) {
+                document.body.requestPointerLock();
             }
         });
     }
@@ -51,7 +55,6 @@ export class PlayerController {
 
         const inputs = this.input.getInputs();
         
-        // Always compute movement based on yaw (ignoring pitch/tilt)
         this.direction.set(0, 0, 0);
         
         const forward = new THREE.Vector3(
@@ -75,11 +78,9 @@ export class PlayerController {
             this.direction.normalize();
         }
 
-        // Potential move
         const moveStep = this.moveSpeed * delta;
         const potentialNextPos = this.position.clone();
         
-        // Axis-independent collision check (sliding)
         if (this.direction.x !== 0) {
             const nextX = potentialNextPos.x + this.direction.x * moveStep;
             if (!this.maze.checkCollisions(new THREE.Vector3(nextX, potentialNextPos.y, potentialNextPos.z))) {
@@ -93,11 +94,6 @@ export class PlayerController {
             }
         }
 
-        // Flashlight always attached to the player center
-        this.flashlight.position.copy(this.position);
-        this.flashlight.position.y = 1.6; // Eye level-ish
-
-        // If in POV, sync camera to this position and apply yaw/pitch
         if (isPOV) {
             this.camera.position.copy(this.position);
             this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');

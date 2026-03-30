@@ -38,10 +38,10 @@ export class Game {
         // 1. Scene Setup
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x000000);
-        this.scene.fog = new THREE.Fog(0x000000, 5, 65);
+        this.scene.fog = new THREE.Fog(0x000000, 3, 30); // Tighter fog for bigger, darker dungeon
         
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.camera.position.set(-12.5, 1.7, -12.5); 
+        this.camera.position.set(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon 
 
         this.renderer = new THREE.WebGLRenderer({
             canvas: document.getElementById('game-canvas'),
@@ -82,6 +82,7 @@ export class Game {
         this.lastFrameTime = performance.now();
         this.stateMachine.changeState("PROVOKE");
         this.capture.takeInitialPhoto();
+        this.player.enablePointerLock(); // Enable AFTER camera permission - no click conflict
         console.log("ByDesign: Timeline started cleanly at t=0.");
     }
 
