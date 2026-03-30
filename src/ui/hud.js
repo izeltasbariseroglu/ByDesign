@@ -100,7 +100,7 @@ export class HUD {
             this.timerLabel.classList.add('glitch');
             this.instructions.innerHTML = "SYSTEM OVERRIDE DETECTED";
         } else if (state === 'END') {
-            this.messageCenter.innerHTML = "<span class='glitch'>THERE WAS NO EXIT.</span><br><br><span style='font-size: 1rem;'>SESSION TERMINATED</span>";
+            this.messageCenter.innerHTML = "<span class='glitch'>YOUR ESCAPE WAS AN ILLUSION.</span><br><br><span style='font-size: 1rem;'>SESSION TERMINATED</span>";
             this.modeLabel.innerHTML = "STATUS: TERMINATED";
             this.modeLabel.style.borderColor = "red";
             this.modeLabel.style.color = "red";

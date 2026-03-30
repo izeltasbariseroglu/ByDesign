@@ -110,3 +110,59 @@ body::after {
         transform: translate(0);
     }
 }
+
+/* ─── Camera Denied Overlay ─── */
+#camera-denied-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: #000;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 24px;
+    text-align: center;
+    padding: 40px;
+}
+
+#camera-denied-overlay .denied-icon {
+    font-size: 4rem;
+    color: #cc0000;
+    text-shadow: 0 0 20px #cc0000, 0 0 40px #880000;
+    animation: glitch 500ms infinite;
+    letter-spacing: 4px;
+}
+
+#camera-denied-overlay .denied-title {
+    font-size: 1.6rem;
+    color: #ff2222;
+    text-transform: uppercase;
+    letter-spacing: 6px;
+    text-shadow: 0 0 10px #ff2222;
+}
+
+#camera-denied-overlay .denied-body {
+    font-size: 0.9rem;
+    color: #888;
+    max-width: 480px;
+    line-height: 1.8;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+#camera-denied-overlay .denied-body span {
+    color: #cc4444;
+}
+
+#camera-denied-overlay .denied-hint {
+    margin-top: 16px;
+    font-size: 0.7rem;
+    color: #444;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+}
+

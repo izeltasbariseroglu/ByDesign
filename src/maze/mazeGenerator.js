@@ -16,7 +16,8 @@ export class MazeGenerator {
 
     initTextures() {
         const loader = new THREE.TextureLoader();
-        this.wallTexture = loader.load('https://threejs.org/examples/textures/brick_bump.jpg');
+        // FIX: Texture bundled locally — was external CDN (threejs.org), now served from /public/assets/
+        this.wallTexture = loader.load('/assets/brick_bump.jpg');
         this.wallTexture.wrapS = THREE.RepeatWrapping;
         this.wallTexture.wrapT = THREE.RepeatWrapping;
         this.wallTexture.repeat.set(2, 2);
@@ -126,9 +127,27 @@ export class MazeGenerator {
         }
     }
 
-    updateTorches(time) {
+    updateTorches(time, playerPos = null) {
+        // Light Culling & Batching
+        // Performans için sadece oyuncuya < 12 birim mesafedeki meşaleleri aktif et (PointLight maliyeti)
+        const CULL_DISTANCE = 12.0;
+        
         for (const t of this.torches) {
-            t.light.intensity = 4 + Math.sin(time * 10 + t.life) * 1.5 + Math.random() * 1.0;
+            // Eğer playerPos gönderildiyse uzaklığa bak
+            if (playerPos) {
+                const distSq = t.light.position.distanceToSquared(playerPos);
+                if (distSq > CULL_DISTANCE * CULL_DISTANCE) {
+                    t.light.visible = false;
+                    continue; 
+                } else {
+                    t.light.visible = true;
+                }
+            }
+
+            // Görünen meşaleler için flicker efektini hesapla
+            // Optimizasyon: Her frame çağrılan Math.random() yerine, mevcut life-cycle üzerinden hashlenmiş gürültü kullanılıyor.
+            const noise = Math.sin(time * 15 + t.life * 13) * 0.5 + Math.sin(time * 25 + t.life * 7) * 0.25;
+            t.light.intensity = 4 + Math.sin(time * 10 + t.life) * 1.5 + noise;
         }
     }
 

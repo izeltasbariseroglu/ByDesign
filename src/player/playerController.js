@@ -1,15 +1,18 @@
 import * as THREE from 'three';
 
 export class PlayerController {
-    constructor(camera, input, maze) {
+    constructor(camera, input, maze, audio = null) {
         this.camera = camera;
         this.input = input;
         this.maze = maze;
+        this.audio = audio;
         
         this.position = new THREE.Vector3(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon
         this.moveSpeed = 3.0; // %25 yavaşlatıldı (4.0 -> 3.0)
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
+
+        this.distanceMoved = 0; // Adım sesi için mesafe takibi
 
         this.lookSpeed = 0.002;
         this.pitch = 0;
@@ -81,17 +84,33 @@ export class PlayerController {
         const moveStep = this.moveSpeed * delta;
         const potentialNextPos = this.position.clone();
         
+        let movedThisFrame = false;
+        
         if (this.direction.x !== 0) {
             const nextX = potentialNextPos.x + this.direction.x * moveStep;
             if (!this.maze.checkCollisions(new THREE.Vector3(nextX, potentialNextPos.y, potentialNextPos.z))) {
                 this.position.x = nextX;
+                movedThisFrame = true;
             }
         }
         if (this.direction.z !== 0) {
             const nextZ = potentialNextPos.z + this.direction.z * moveStep;
             if (!this.maze.checkCollisions(new THREE.Vector3(this.position.x, potentialNextPos.y, nextZ))) {
                 this.position.z = nextZ;
+                movedThisFrame = true;
             }
+        }
+
+        // --- Adım sesi tetikleme (sadece yürürken) ---
+        if (movedThisFrame && this.audio && isPOV) {
+            this.distanceMoved += moveStep;
+            if (this.distanceMoved > 1.5) { // Her 1.5 birimde bir adım (oyuncu hızına göre ayarlı)
+                this.audio.triggerFootstep();
+                this.distanceMoved = 0;
+            }
+        } else if (!movedThisFrame) {
+            // Durduğumuzda bir sonraki adımın hemem gelmesi için mesafeyi azalt (fakat hemen sıfırlama)
+            this.distanceMoved = Math.max(0, this.distanceMoved - delta * 2);
         }
 
         if (isPOV) {

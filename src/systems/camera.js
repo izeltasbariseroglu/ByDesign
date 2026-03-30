@@ -4,6 +4,7 @@ export class CameraSystem {
     constructor(camera) {
         this.camera = camera;
         this.isTransitioning = false;
+        this.isTopDown = false; // FIX: explicit flag replaces fragile `=== 1` float check
         this.transitionProgress = 0;
         this.transitionDuration = 3000; // 3 seconds transition
 
@@ -45,6 +46,7 @@ export class CameraSystem {
             if (this.transitionProgress >= 1) {
                 this.transitionProgress = 1;
                 this.isTransitioning = false;
+                this.isTopDown = true; // FIX: set flag instead of relying on float === 1
                 console.log("Camera Transition Complete: TOP-DOWN mode");
             }
 
@@ -53,7 +55,7 @@ export class CameraSystem {
             
             this.camera.position.lerpVectors(this.startPos, this.targetPos, t);
             this.camera.quaternion.slerpQuaternions(this.startRot, this.targetRot, t);
-        } else if (this.transitionProgress === 1) {
+        } else if (this.isTopDown) { // FIX: was === 1 (fragile float equality), now uses isTopDown flag
             // Keep tracking the player from top down once transition is done
             this.camera.position.set(playerPosition.x, 15, playerPosition.z);
         }

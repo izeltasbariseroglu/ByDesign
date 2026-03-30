@@ -5,6 +5,8 @@ import { InputManipulator } from '../player/inputManipulator.js';
 import { Timer } from '../systems/timer.js';
 import { CameraSystem } from '../systems/camera.js';
 import { CaptureSystem } from '../systems/capture.js';
+import { GlitchSystem } from '../systems/glitch.js';
+import { AudioSystem } from '../systems/audio.js';
 import { MazeGenerator } from '../maze/mazeGenerator.js';
 import { HUD } from '../ui/hud.js';
 import { EndScreen } from '../ui/endScreen.js';
@@ -27,11 +29,17 @@ export class Game {
         this.timer = new Timer();
         this.cameraSystem = null;
         this.capture = new CaptureSystem();
+        this.glitchSystem = null; // Initialized after renderer is ready
+        this.audio = null;        // Initialized after renderer is ready
         this.hud = new HUD();
         this.endScreen = new EndScreen();
         
         this.isInitialized = false;
         this.hasStarted = false;
+
+        // FIX: Guard flags to prevent double-trigger of state transitions
+        this.exitTriggered = false; // EXIT_REACHED can only fire once
+        this.endTriggered = false;  // END state / endScreen.show() can only fire once
     }
 
     async init() {
@@ -55,9 +63,13 @@ export class Game {
         // 2. Systems Setup
         this.input = new InputManipulator();
         this.maze = new MazeGenerator(this.scene);
-        this.player = new PlayerController(this.camera, this.input, this.maze);
-        this.player.addToScene(this.scene);
         this.cameraSystem = new CameraSystem(this.camera);
+        this.glitchSystem = new GlitchSystem(this.renderer, this.scene, this.camera);
+        this.glitchSystem.setPhase('LOCKED');
+        this.audio = new AudioSystem();
+
+        this.player = new PlayerController(this.camera, this.input, this.maze, this.audio);
+        this.player.addToScene(this.scene);
 
         // 3. Wait for camera permission (click to start)
         this.hud.update("LOCKED", "", this.player.position, this.maze.getMazeInfo());
@@ -69,7 +81,9 @@ export class Game {
                 this.startGameTimeline();
                 document.removeEventListener('click', setupStart);
             } else {
-                alert("CAMERA ACCESS IS MANDATORY FOR THIS EXPERIENCE.");
+                // FIX: Replace blocking alert() with themed DOM overlay
+                document.removeEventListener('click', setupStart);
+                this._showCameradeniedOverlay();
             }
         };
 
@@ -79,12 +93,13 @@ export class Game {
 
     startGameTimeline() {
         this.hasStarted = true;
-        // KEY FIX: Record the exact timestamp when the game starts.
-        // getDelta() will compute clean deltas from THIS point forward.
         this.lastFrameTime = performance.now();
         this.stateMachine.changeState("PROVOKE");
+        this.glitchSystem.setPhase('PROVOKE');
+        this.audio.resume();
+        this.audio.setPhase('PROVOKE');
         this.capture.takeInitialPhoto();
-        this.player.enablePointerLock(); // Enable AFTER camera permission - no click conflict
+        this.player.enablePointerLock();
         console.log("ByDesign: Timeline started cleanly at t=0.");
     }
 
@@ -101,40 +116,55 @@ export class Game {
         const currentTotalTime = this.timer.update(delta);
         const timeString = this.timer.getFormattedTime();
 
-        // 1. State Transitions 
+        // 1. State Transitions
         if (this.stateMachine.is("PROVOKE") && currentTotalTime >= 10) {
             console.log("ByDesign: Entering PLAY phase.");
             this.stateMachine.changeState("PLAY");
-        } else if (this.stateMachine.is("PLAY") && currentTotalTime >= 70) {
-            console.log("ByDesign: Entering BREAK phase.");
+            this.glitchSystem.setPhase('PLAY');
+            this.audio.setPhase('PLAY');
+        } else if (this.stateMachine.is("PLAY") && currentTotalTime >= 70 && !this.exitTriggered) {
+            console.log("ByDesign: Entering BREAK phase (timer).");
             this.stateMachine.changeState("BREAK");
             this.input.setMode("BREAK");
             this.cameraSystem.startTopDownTransition(this.player.position);
-        } else if (this.stateMachine.is("BREAK") && currentTotalTime >= 90) {
+            this.glitchSystem.setPhase('BREAK');
+            this.audio.setPhase('BREAK');
+        } else if (this.stateMachine.is("BREAK") && currentTotalTime >= 90 && !this.endTriggered) {
+            this.endTriggered = true;
             this.capture.takeFinalPhoto();
             this.stateMachine.changeState("END");
+            this.glitchSystem.setPhase('END');
+            this.audio.setPhase('END');
             this.endScreen.show(this.capture.initialPhoto, this.capture.finalPhoto);
         }
 
         // 2. Subsystem Updates
         const isPOV = this.stateMachine.is("PLAY") || this.stateMachine.is("PROVOKE");
         this.player.update(delta, isPOV);
-        this.maze.updateTorches(currentTotalTime);
+        this.maze.updateTorches(currentTotalTime, this.player.position);
         
         if (this.stateMachine.is("BREAK")) {
             this.cameraSystem.update(delta, this.player.position); 
         }
 
-        // 3. UI Sync
-        if (this.stateMachine.is("PLAY") || this.stateMachine.is("BREAK")) {
+        // 3. Exit Trigger Check
+        // FIX: exitTriggered guard ensures EXIT_REACHED fires at most once
+        if (!this.exitTriggered && (this.stateMachine.is("PLAY") || this.stateMachine.is("BREAK"))) {
             if (this.maze.checkTriggers(this.player) === "EXIT_REACHED") {
                 if (this.stateMachine.is("PLAY")) {
+                    this.exitTriggered = true;
+                    console.log("ByDesign: EXIT reached during PLAY — entering BREAK.");
                     this.stateMachine.changeState("BREAK");
                     this.input.setMode("BREAK");
                     this.cameraSystem.startTopDownTransition(this.player.position);
-                } else if (this.stateMachine.is("BREAK")) {
+                    this.glitchSystem.setPhase('BREAK');
+                } else if (this.stateMachine.is("BREAK") && !this.endTriggered) {
+                    this.exitTriggered = true;
+                    this.endTriggered = true;
+                    console.log("ByDesign: EXIT reached during BREAK — triggering END.");
                     this.capture.takeFinalPhoto();
                     this.stateMachine.changeState("END");
+                    this.glitchSystem.setPhase('END');
                     this.endScreen.show(this.capture.initialPhoto, this.capture.finalPhoto);
                 }
             }
@@ -149,7 +179,11 @@ export class Game {
     }
 
     render() {
-        if (this.renderer && this.scene && this.camera) {
+        if (this.glitchSystem) {
+            // Route all rendering through the EffectComposer pipeline
+            this.glitchSystem.render();
+        } else if (this.renderer && this.scene && this.camera) {
+            // Fallback: direct render if GlitchSystem isn't ready yet
             this.renderer.render(this.scene, this.camera);
         }
     }
@@ -159,5 +193,27 @@ export class Game {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        if (this.glitchSystem) {
+            this.glitchSystem.onResize(window.innerWidth, window.innerHeight);
+        }
+    }
+
+    // FIX: Replaces alert() — shows a themed, non-blocking camera denied screen
+    _showCameraDeniedOverlay() {
+        const overlay = document.createElement('div');
+        overlay.id = 'camera-denied-overlay';
+        overlay.innerHTML = `
+            <div class="denied-icon">[ ACCESS DENIED ]</div>
+            <div class="denied-title">Surveillance Refused</div>
+            <div class="denied-body">
+                This experience requires access to your camera.<br><br>
+                <span>You cannot participate without being seen.</span><br><br>
+                Enable camera permissions in your browser and reload.
+            </div>
+            <div class="denied-hint">RELOAD PAGE TO TRY AGAIN &nbsp;|&nbsp; ESC → SETTINGS → SITE PERMISSIONS → CAMERA</div>
+        `;
+        document.body.appendChild(overlay);
+        console.warn("ByDesign: Camera denied — overlay shown, experience halted.");
     }
 }
+

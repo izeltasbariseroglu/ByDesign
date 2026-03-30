@@ -2,6 +2,7 @@ export class CaptureSystem {
     constructor() {
         this.stream = null;
         this.video = document.createElement('video');
+        this.video.playsInline = true; // Needed for some mobile/desktop browsers
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d');
         
@@ -25,8 +26,15 @@ export class CaptureSystem {
         }
     }
 
+    // FIX: Guard against capturing before video has valid frame data
     capturePhoto() {
         if (!this.stream) return null;
+
+        // readyState < 2 means no current frame data available yet
+        if (this.video.readyState < 2) {
+            console.warn("CaptureSystem: video not ready (readyState=" + this.video.readyState + "), skipping capture.");
+            return null;
+        }
 
         // Set dimensions match video
         this.canvas.width = this.video.videoWidth || 640;
@@ -39,10 +47,27 @@ export class CaptureSystem {
         return photoData;
     }
 
+    // FIX: Wait for video to have frame data before capturing the initial photo
     takeInitialPhoto() {
-        this.startPhoto = this.capturePhoto();
-        this.initialPhoto = this.startPhoto;
-        return this.startPhoto;
+        const doCapture = () => {
+            this.startPhoto = this.capturePhoto();
+            this.initialPhoto = this.startPhoto;
+            return this.startPhoto;
+        };
+
+        // If video already has data, capture immediately
+        if (this.video.readyState >= 2) {
+            return doCapture();
+        }
+
+        // Otherwise wait for the first frame to be available
+        console.log("CaptureSystem: waiting for video to be ready before initial capture...");
+        this.video.addEventListener('loadeddata', () => {
+            doCapture();
+            console.log("CaptureSystem: initial photo captured after video ready.");
+        }, { once: true });
+
+        return null; // Will be set asynchronously
     }
 
     takeFinalPhoto() {
