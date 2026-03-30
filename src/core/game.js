@@ -7,6 +7,7 @@ import { CameraSystem } from '../systems/camera.js';
 import { CaptureSystem } from '../systems/capture.js';
 import { MazeGenerator } from '../maze/mazeGenerator.js';
 import { HUD } from '../ui/hud.js';
+import { EndScreen } from '../ui/endScreen.js';
 
 export class Game {
     constructor() {
@@ -27,6 +28,7 @@ export class Game {
         this.cameraSystem = null;
         this.capture = new CaptureSystem();
         this.hud = new HUD();
+        this.endScreen = new EndScreen();
         
         this.isInitialized = false;
         this.hasStarted = false;
@@ -109,7 +111,9 @@ export class Game {
             this.input.setMode("BREAK");
             this.cameraSystem.startTopDownTransition(this.player.position);
         } else if (this.stateMachine.is("BREAK") && currentTotalTime >= 90) {
+            this.capture.takeFinalPhoto();
             this.stateMachine.changeState("END");
+            this.endScreen.show(this.capture.initialPhoto, this.capture.finalPhoto);
         }
 
         // 2. Subsystem Updates
@@ -123,7 +127,17 @@ export class Game {
 
         // 3. UI Sync
         if (this.stateMachine.is("PLAY") || this.stateMachine.is("BREAK")) {
-            this.maze.checkTriggers && this.maze.checkTriggers(this.player); 
+            if (this.maze.checkTriggers(this.player) === "EXIT_REACHED") {
+                if (this.stateMachine.is("PLAY")) {
+                    this.stateMachine.changeState("BREAK");
+                    this.input.setMode("BREAK");
+                    this.cameraSystem.startTopDownTransition(this.player.position);
+                } else if (this.stateMachine.is("BREAK")) {
+                    this.capture.takeFinalPhoto();
+                    this.stateMachine.changeState("END");
+                    this.endScreen.show(this.capture.initialPhoto, this.capture.finalPhoto);
+                }
+            }
         }
 
         this.hud.update(this.stateMachine.currentState, timeString, this.player.position, this.maze.getMazeInfo());

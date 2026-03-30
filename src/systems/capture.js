@@ -6,6 +6,7 @@ export class CaptureSystem {
         this.ctx = this.canvas.getContext('2d');
         
         this.startPhoto = null;
+        this.initialPhoto = null;
         this.finalPhoto = null;
 
         console.log("Capture system initialized");
@@ -40,6 +41,7 @@ export class CaptureSystem {
 
     takeInitialPhoto() {
         this.startPhoto = this.capturePhoto();
+        this.initialPhoto = this.startPhoto;
         return this.startPhoto;
     }
 

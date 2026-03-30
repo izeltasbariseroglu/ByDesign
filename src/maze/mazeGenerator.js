@@ -143,6 +143,17 @@ export class MazeGenerator {
         return false;
     }
 
+    checkTriggers(player) {
+        const exitX = (17 - this.gridSize / 2) * this.cellSize;
+        const exitZ = (17 - this.gridSize / 2) * this.cellSize;
+        
+        const dist = Math.hypot(player.position.x - exitX, player.position.z - exitZ);
+        if (dist < 1.5) {
+            return "EXIT_REACHED";
+        }
+        return null;
+    }
+
     getMazeInfo() {
         return { data: this.mazeData, gridSize: this.gridSize, cellSize: this.cellSize };
     }
