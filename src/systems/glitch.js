@@ -120,10 +120,10 @@ export class GlitchSystem {
                 break;
 
             case 'END':
-                // Freeze — keep light grain but stop the active glitch
+                // Freeze: grain stays, intense CA, glitch OFF (frozen reality)
                 this.filmPass.enabled = true;
-                this.filmPass.uniforms['nIntensity'].value = 0.3;
-                this.chromaticPass.uniforms['amount'].value = 0.003;
+                this.filmPass.uniforms['nIntensity'].value = 0.4;
+                this.chromaticPass.uniforms['amount'].value = 0.012;
                 this.glitchPass.enabled = false;
                 this.glitchPass.goWild = false;
                 break;
@@ -133,6 +133,28 @@ export class GlitchSystem {
         }
 
         console.log(`GlitchSystem: phase set to [${phase}]`);
+    }
+
+    /**
+     * One-shot COLLAPSE burst — called exactly at 150s before END screen.
+     * Ramps CA and glitch to maximum over 1.5s, then freezes.
+     */
+    triggerCollapse() {
+        console.warn('GlitchSystem: COLLAPSE triggered — 3D reality tearing.');
+
+        // Phase 1: violent burst (0 → 500ms)
+        this.glitchPass.enabled = true;
+        this.glitchPass.goWild  = true;
+        this.filmPass.uniforms['nIntensity'].value = 0.9;
+        this.chromaticPass.uniforms['amount'].value = 0.025; // Max CA split
+
+        // Phase 2: freeze CA at elevated level after burst (500ms)
+        setTimeout(() => {
+            this.glitchPass.enabled = false;
+            this.glitchPass.goWild  = false;
+            this.filmPass.uniforms['nIntensity'].value = 0.45;
+            this.chromaticPass.uniforms['amount'].value = 0.015;
+        }, 500);
     }
 
     /**

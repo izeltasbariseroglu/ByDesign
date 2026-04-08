@@ -4,18 +4,17 @@ export class CameraSystem {
     constructor(camera) {
         this.camera = camera;
         this.isTransitioning = false;
-        this.isTopDown = false; // FIX: explicit flag replaces fragile `=== 1` float check
+        this.isAngledTopDown = false;
         this.transitionProgress = 0;
-        this.transitionDuration = 3000; // 3 seconds transition
+        this.transitionDuration = 4000; // 4 second cinematic slide
 
-        // Storage for start/end params
         this.startPos = new THREE.Vector3();
         this.startRot = new THREE.Quaternion();
 
         this.targetPos = new THREE.Vector3();
-        this.targetRot = new THREE.Quaternion(0, 0, 0, 1); // Looking down
+        this.targetRot = new THREE.Quaternion();
 
-        console.log("Camera transition system initialized");
+        console.log("Camera transition system initialized (Phase 3: Angled Top-Down)");
     }
 
     startTopDownTransition(playerPosition) {
@@ -27,16 +26,21 @@ export class CameraSystem {
         this.startPos.copy(this.camera.position);
         this.startRot.copy(this.camera.quaternion);
 
-        // Target: Directly above the player, looking down
-        this.targetPos.copy(playerPosition).add(new THREE.Vector3(0, 15, 0));
-        
-        // Use a dummy camera or LookAt proxy to get the quaternion for top-down
+        // Angled view: raised and pulled back diagonally — NOT directly overhead.
+        // Player visible from front-top (~45° angle) giving "expelled from body" feeling.
+        this.targetPos.set(
+            playerPosition.x - 3,  // slightly in front
+            playerPosition.y + 9,  // elevated
+            playerPosition.z + 9   // pulled back
+        );
+
+        // Build quaternion: look at the player's feet from the angled position
         const dummy = new THREE.Object3D();
         dummy.position.copy(this.targetPos);
-        dummy.lookAt(playerPosition.x, 0, playerPosition.z);
+        dummy.lookAt(playerPosition.x, playerPosition.y - 0.5, playerPosition.z);
         this.targetRot.copy(dummy.quaternion);
 
-        console.log("Starting Camera Transition: POV -> TOP-DOWN");
+        console.log("Starting Camera Transition: POV → Angled Top-Down (Phase 3)");
     }
 
     update(delta, playerPosition) {
@@ -46,22 +50,29 @@ export class CameraSystem {
             if (this.transitionProgress >= 1) {
                 this.transitionProgress = 1;
                 this.isTransitioning = false;
-                this.isTopDown = true; // FIX: set flag instead of relying on float === 1
-                console.log("Camera Transition Complete: TOP-DOWN mode");
+                this.isAngledTopDown = true;
+                console.log("Camera Transition Complete: Angled Top-Down active");
             }
 
-            // EaseInOut for smoother "feel of being pushed out"
-            const t = this.easeInOutQuad(this.transitionProgress);
+            const t = this.easeInOutCubic(this.transitionProgress);
             
             this.camera.position.lerpVectors(this.startPos, this.targetPos, t);
             this.camera.quaternion.slerpQuaternions(this.startRot, this.targetRot, t);
-        } else if (this.isTopDown) { // FIX: was === 1 (fragile float equality), now uses isTopDown flag
-            // Keep tracking the player from top down once transition is done
-            this.camera.position.set(playerPosition.x, 15, playerPosition.z);
+
+        } else if (this.isAngledTopDown) {
+            // Softly track the player's position offset once transition is complete
+            this.camera.position.lerp(
+                new THREE.Vector3(
+                    playerPosition.x - 3,
+                    playerPosition.y + 9,
+                    playerPosition.z + 9
+                ),
+                0.05  // Very soft tracking, doesn't snap
+            );
         }
     }
 
-    easeInOutQuad(t) {
-        return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    easeInOutCubic(t) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
     }
 }

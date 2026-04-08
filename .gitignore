@@ -9,3 +9,4 @@ dist
 _agents
 _agent
 *.log
+*.glb

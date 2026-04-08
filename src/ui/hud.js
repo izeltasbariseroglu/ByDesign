@@ -13,9 +13,23 @@ export class HUD {
         this.modeLabel.style.border = '1px solid #fff';
         this.modeLabel.style.zIndex = '100';
         this.container.appendChild(this.modeLabel);
+        
+        // Candy Counter (Top-Right, below Mode)
+        this.candyLabel = document.createElement('div');
+        this.candyLabel.id = 'candy-label';
+        this.candyLabel.style.position = 'fixed';
+        this.candyLabel.style.top = '70px';
+        this.candyLabel.style.right = '20px';
+        this.candyLabel.style.fontSize = '24px';
+        this.candyLabel.style.fontFamily = 'monospace';
+        this.candyLabel.style.color = '#ff69b4'; // Pink
+        this.candyLabel.style.textShadow = '0 0 10px rgba(255,105,180,0.5)';
+        this.candyLabel.innerHTML = 'CANDIES: 0/10';
+        this.container.appendChild(this.candyLabel);
 
         // Timer Top-Left
         this.timerLabel = document.createElement('div');
+        this.timerLabel.id = 'hud-timer';
         this.timerLabel.style.position = 'fixed';
         this.timerLabel.style.top = '20px';
         this.timerLabel.style.left = '20px';
@@ -24,6 +38,7 @@ export class HUD {
         this.timerLabel.style.color = '#ffffff';
         this.timerLabel.style.textShadow = '0 0 10px rgba(255,255,255,0.5)';
         this.timerLabel.style.opacity = '1';
+        this.timerLabel.style.transition = 'all 1s cubic-bezier(0.16,1,0.3,1)';
         this.container.appendChild(this.timerLabel);
 
         // Provoke / Main Message Center
@@ -46,44 +61,26 @@ export class HUD {
         this.instructions.style.opacity = '0.4';
         this.container.appendChild(this.instructions);
 
-        // Minimap container
-        this.minimapContainer = document.createElement('div');
-        this.minimapContainer.id = 'minimap-container';
-        this.minimapContainer.style.cssText = 'position: absolute; bottom: 40px; right: 40px; width: 200px; height: 200px; border: 2px solid #fff; background: rgba(0,0,0,0.7); box-shadow: 0 0 20px rgba(0,0,255,0.2);';
-        
-        this.minimapCanvas = document.createElement('canvas');
-        this.minimapCanvas.width = 200;
-        this.minimapCanvas.height = 200;
-        this.minimapContainer.appendChild(this.minimapCanvas);
-        this.container.appendChild(this.minimapContainer);
-
-        this.ctx = this.minimapCanvas.getContext('2d');
-        
-        this.provokeTexts = [
-            "DO YOU REALLY THINK YOU CAN WIN?",
-            "YOUR CONTROL IS AN ILLUSION.",
-            "JUST ANOTHER PLAYER IN A RIGGED GAME.",
-            "PROCEED. IT WON'T MATTER."
-        ];
-        this.currentProvokeText = this.provokeTexts[0];
+        this.ctx = null;
     }
 
-    update(state, timeString, playerPosition, mazeInfo) {
+    update(state, timeString, playerPosition, mazeInfo, candyCount = 0) {
         if (this.lastState !== state) {
             console.log(`HUD: State changed to [${state}]`);
             this.lastState = state;
         }
         this.timerLabel.innerHTML = timeString || '';
+        this.candyLabel.innerHTML = `CANDIES: ${candyCount}/10`;
         
         if (state === 'LOCKED') {
             this.messageCenter.innerHTML = "<span class='glitch'>CAMERA PERMISSION REQUIRED</span>";
             this.modeLabel.innerHTML = "STATUS: UNAUTHORIZED";
             this.instructions.innerHTML = "CLICK ANYWHERE TO REQUEST ACCESS";
         } else if (state === 'PROVOKE') {
-            this.messageCenter.innerHTML = this.currentProvokeText;
+            this.messageCenter.innerHTML = "WELCOME TO THE GARDEN";
             this.modeLabel.innerHTML = "STATUS: INITIALIZING";
             this.instructions.innerHTML = "WASD TO MOVE";
-            this.timerLabel.style.opacity = '1'; // timer always visible
+            this.timerLabel.style.opacity = '1';
         } else if (state === 'PLAY') {
             this.messageCenter.innerHTML = "";
             this.modeLabel.innerHTML = "STATUS: STABLE";
@@ -108,58 +105,33 @@ export class HUD {
             this.instructions.innerHTML = "CLICK TO DISCONNECT";
         }
 
-        // Draw Minimap
-        if (mazeInfo && playerPosition) {
-            this.drawMinimap(playerPosition, mazeInfo);
-        }
+        // Minimap draw logic removed as per Phase 1 cleanup
     }
 
-    drawMinimap(playerPos, mazeInfo) {
-        const { data, gridSize, cellSize } = mazeInfo;
-        const canvasSize = 200;
-        const squareSize = canvasSize / gridSize;
+    /** Called at BREAK start (120s): slams the timer to center, makes it red + aggressive */
+    activateBreakTimer() {
+        const t = this.timerLabel;
+        t.style.top = '50%';
+        t.style.left = '50%';
+        t.style.transform = 'translate(-50%, -50%)';
+        t.style.fontSize = '6rem';
+        t.style.fontWeight = 'bold';
+        t.style.color = '#ff0000';
+        t.style.textShadow = '0 0 30px #ff0000, 0 0 60px #880000';
+        t.style.animation = 'break-pulse 0.4s infinite alternate';
+        t.style.letterSpacing = '8px';
+        t.style.zIndex = '500';
+        console.log('HUD: Break timer activated — centered and red');
+    }
 
-        this.ctx.clearRect(0, 0, canvasSize, canvasSize);
-
-        // Draw Walls
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-        for (let r = 0; r < gridSize; r++) {
-            for (let c = 0; c < gridSize; c++) {
-                if (data[r] && data[r][c] === 1) {
-                    this.ctx.fillRect(c * squareSize, r * squareSize, squareSize, squareSize);
-                }
+    showProvokeMessage(text) {
+        this.messageCenter.innerHTML = `<span class='glitch' style='color: #ff69b4; text-shadow: 0 0 15px pink;'>${text}</span>`;
+        
+        // Remove message after 3 seconds
+        setTimeout(() => {
+            if (this.messageCenter.innerHTML.includes(text)) {
+                this.messageCenter.innerHTML = "";
             }
-        }
-
-        // Draw Exit marker at grid [17, 17] - bottom-right open cell in 20x20 dungeon
-        const exitCol = 17;
-        const exitRow = 17;
-        this.ctx.save();
-        this.ctx.fillStyle = '#00ff88';
-        this.ctx.shadowBlur = 12;
-        this.ctx.shadowColor = '#00ff88';
-        this.ctx.font = `bold ${Math.floor(squareSize * 0.9)}px monospace`;
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText('X', (exitCol + 0.5) * squareSize, (exitRow + 0.5) * squareSize);
-        this.ctx.restore();
-
-        // Draw Player (Logical conversion from 3D coords to Minimap grid)
-        // Note: x = (col - gridSize/2) * cellSize => col = x / cellSize + gridSize/2
-        const playerCol = playerPos.x / cellSize + gridSize / 2;
-        const playerRow = playerPos.z / cellSize + gridSize / 2;
-
-        this.ctx.save();
-        this.ctx.fillStyle = '#ff3333';
-        this.ctx.shadowBlur = 14;
-        this.ctx.shadowColor = 'red';
-        this.ctx.beginPath();
-        this.ctx.arc(playerCol * squareSize, playerRow * squareSize, 5, 0, Math.PI * 2);
-        this.ctx.fill();
-        this.ctx.restore();
-    }
-
-    setProvokeText(index) {
-        this.currentProvokeText = this.provokeTexts[index % this.provokeTexts.length];
+        }, 3000);
     }
 }

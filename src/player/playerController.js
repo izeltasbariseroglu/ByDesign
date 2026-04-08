@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { AnimationManager } from '../systems/animationManager.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export class PlayerController {
     constructor(camera, input, maze, audio = null) {
@@ -20,11 +22,16 @@ export class PlayerController {
         
         this.isPointerLocked = false;
         this.setupPointerLock();
-        // Flashlight REMOVED - only wall torches illuminate
+
+        // Phase 2+3: Animation & Rigging — scene passed via setScene()
+        this.scene = null;
+        this.animationManager = null;
+        this.loader = new GLTFLoader();
     }
 
     addToScene(scene) {
-        // No personal flashlight
+        this.scene = scene;
+        this.animationManager = new AnimationManager(this.camera, scene);
     }
 
     setupPointerLock() {
@@ -116,6 +123,29 @@ export class PlayerController {
         if (isPOV) {
             this.camera.position.copy(this.position);
             this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+            if (this.animationManager) {
+                this.animationManager.update(performance.now() / 1000, delta);
+            }
+        }
+    }
+
+    triggerCollectionEffect() {
+        if (this.animationManager) this.animationManager.reachOut();
+    }
+
+    revealCharacter() {
+        if (this.animationManager) this.animationManager.showCharacter(this.position);
+    }
+
+    triggerKneel() {
+        if (this.animationManager) this.animationManager.triggerKneel();
+    }
+
+    updateCharacterPosition() {
+        // Keep the 3D model tracking the player position in top-down phase
+        if (this.animationManager.characterModel) {
+            this.animationManager.characterModel.position.x = this.position.x;
+            this.animationManager.characterModel.position.z = this.position.z;
         }
     }
 }
