@@ -10,3 +10,4 @@ _agents
 _agent
 *.log
 *.glb
+public/assets/

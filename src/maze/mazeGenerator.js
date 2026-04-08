@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CandySystem } from './candy.js';
 
 export class MazeGenerator {
@@ -52,44 +53,100 @@ export class MazeGenerator {
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
         ];
 
-        const wallMat = new THREE.MeshStandardMaterial({ 
-            color: 0x1a4d1a,
+        const textureLoader = new THREE.TextureLoader();
+        
+        // Wall texture
+        const wallTexture = textureLoader.load('/assets/bush_texture.jpg');
+        wallTexture.wrapS = THREE.MirroredRepeatWrapping;
+        wallTexture.wrapT = THREE.MirroredRepeatWrapping;
+        
+        const baseWallMat = new THREE.MeshStandardMaterial({ 
+            map: wallTexture,
+            color: 0xffffff,
             roughness: 0.9,
             metalness: 0.1
         });
+
+        // Floor texture
+        const floorTexture = textureLoader.load('/assets/grass_texture.avif');
+        floorTexture.wrapS = THREE.MirroredRepeatWrapping;
+        floorTexture.wrapT = THREE.MirroredRepeatWrapping;
+        // Tile smoothly across the whole map rather than tiny patches
+        floorTexture.repeat.set(3, 3); 
+
         const floorMat = new THREE.MeshStandardMaterial({ 
-            color: 0x3d5c1f,
+            map: floorTexture,
+            color: 0xffffff,
             roughness: 1.0, 
             metalness: 0.0 
         });
-        const wallGeo  = new THREE.BoxGeometry(this.cellSize, 4, this.cellSize);
-        const floorGeo = new THREE.PlaneGeometry(this.cellSize, this.cellSize);
+        
+        // Single unified massive floor plane (seamless)
+        const totalSize = this.gridSize * this.cellSize;
+        const floorGeo = new THREE.PlaneGeometry(totalSize, totalSize);
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        
+        // Center the 50x50 map over the maze layout
+        floor.position.set(-this.cellSize / 2, 0, -this.cellSize / 2);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        this.scene.add(floor);
+        
+        // Greedy meshing for continuous walls
+        const visited = Array(this.gridSize).fill(null).map(() => Array(this.gridSize).fill(false));
 
         for (let row = 0; row < this.gridSize; row++) {
             for (let col = 0; col < this.gridSize; col++) {
-                const x = (col - this.gridSize / 2) * this.cellSize;
-                const z = (row - this.gridSize / 2) * this.cellSize;
+                if (this.mazeData[row][col] === 1 && !visited[row][col]) {
+                    
+                    let width = 1;
+                    // Check horizontal span
+                    while (col + width < this.gridSize && this.mazeData[row][col + width] === 1 && !visited[row][col + width]) {
+                        width++;
+                    }
+                    
+                    let depth = 1;
+                    // If no horizontal span, check vertical span
+                    if (width === 1) {
+                        while (row + depth < this.gridSize && this.mazeData[row + depth][col] === 1 && !visited[row + depth][col]) {
+                            depth++;
+                        }
+                    }
 
-                const floor = new THREE.Mesh(floorGeo, floorMat);
-                floor.position.set(x, 0, z);
-                floor.rotation.x = -Math.PI / 2;
-                floor.receiveShadow = true;
-                this.scene.add(floor);
+                    // Mark as visited
+                    for (let r = 0; r < depth; r++) {
+                        for (let c = 0; c < width; c++) {
+                            visited[row + r][col + c] = true;
+                        }
+                    }
 
-                if (this.mazeData[row][col] === 1) {
-                    const wall = new THREE.Mesh(wallGeo, wallMat);
-                    wall.position.set(x, 2, z);
+                    // Dimensions
+                    const w = width * this.cellSize;
+                    const d = depth * this.cellSize;
+                    
+                    // Create continuous rounded geometry spanning entire block
+                    const geo = new RoundedBoxGeometry(w + 0.4, 2, d + 0.4, 6, 0.6);
+                    
+                    // Clone material to scale texture nicely along the block
+                    const mat = baseWallMat.clone();
+                    mat.map = baseWallMat.map.clone();
+                    mat.map.repeat.set(Math.max(width, depth) * 1.5, 1);
+
+                    const x = (col + width / 2 - 0.5 - this.gridSize / 2) * this.cellSize;
+                    const z = (row + depth / 2 - 0.5 - this.gridSize / 2) * this.cellSize;
+
+                    const wall = new THREE.Mesh(geo, mat);
+                    wall.position.set(x, 1, z);
                     wall.castShadow    = true;
                     wall.receiveShadow = true;
                     this.scene.add(wall);
                     this.walls.push(wall);
 
-                    const box = new THREE.Box3().setFromObject(wall);
+                    const box = new THREE.Box3().setFromCenterAndSize(
+                        new THREE.Vector3(x, 1, z),
+                        new THREE.Vector3(w, 2, d)
+                    );
                     this.wallBoundingBoxes.push(box);
-
-                    if (Math.random() > 0.6) {
-                        this.addFlowers(wall, x, z);
-                    }
                 }
             }
         }
@@ -114,34 +171,6 @@ export class MazeGenerator {
         });
 
         console.log(`MazeGenerator: ${this.candies.length} candy instances spawned.`);
-    }
-
-    // ── Pink flowers ─────────────────────────────────────────────────────────
-    addFlowers(wall, x, z) {
-        const count = 1 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < count; i++) {
-            const geo = new THREE.PlaneGeometry(0.15, 0.15);
-            const mat = new THREE.MeshStandardMaterial({
-                color: 0xff69b4,
-                emissive: 0xff1493,
-                emissiveIntensity: 0.5,
-                side: THREE.DoubleSide,
-                transparent: true,
-                alphaTest: 0.5
-            });
-            const flower = new THREE.Mesh(geo, mat);
-
-            const face   = Math.floor(Math.random() * 4);
-            const h      = 0.5 + Math.random() * 2.5;
-            const offset = this.cellSize / 2 + 0.01;
-
-            if      (face === 0) flower.position.set(x,          h, z + offset);
-            else if (face === 1) flower.position.set(x,          h, z - offset);
-            else if (face === 2) { flower.position.set(x + offset, h, z); flower.rotation.y = Math.PI / 2; }
-            else                 { flower.position.set(x - offset, h, z); flower.rotation.y = Math.PI / 2; }
-
-            this.scene.add(flower);
-        }
     }
 
     // ── Collision ─────────────────────────────────────────────────────────────

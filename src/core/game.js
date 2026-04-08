@@ -53,10 +53,25 @@ export class Game {
         
         // 1. Scene Setup
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x87CEEB); // Pale Sky Blue
+        this.scene.background = new THREE.Color(0x87CEEB);
         this.scene.fog = new THREE.Fog(0xf0f8ff, 1, 50);   // Alice Blue Light Fog
         
-        // New Atmosphere Lights
+        // 360 Seamless Sky Dome
+        const textureLoader = new THREE.TextureLoader();
+        const skyTexture = textureLoader.load('/assets/sky_texture.jpg');
+        skyTexture.wrapS = THREE.MirroredRepeatWrapping;
+        skyTexture.wrapT = THREE.MirroredRepeatWrapping;
+        skyTexture.repeat.set(4, 2); // Repeat and mirror to hide all edge seams
+        skyTexture.colorSpace = THREE.SRGBColorSpace;
+
+        const skyGeo = new THREE.SphereGeometry(400, 64, 32);
+        const skyMat = new THREE.MeshBasicMaterial({
+            map: skyTexture,
+            side: THREE.BackSide,
+            fog: false // Sky is behind fog
+        });
+        const sky = new THREE.Mesh(skyGeo, skyMat);
+        this.scene.add(sky);
         const sun = new THREE.DirectionalLight(0xffffff, 1.2);
         sun.position.set(50, 100, 50);
         sun.castShadow = true;
@@ -130,6 +145,8 @@ export class Game {
         this.player.enablePointerLock();
         console.log("ByDesign: Timeline started cleanly at t=0.");
     }
+
+    // Clouds removed
 
     update() {
         if (!this.isInitialized || !this.hasStarted) return;
