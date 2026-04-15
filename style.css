@@ -1,9 +1,13 @@
+/* ── Google Fonts — Digital/System Display ───────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap');
+
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
     user-select: none;
 }
+
 
 body, html {
     width: 100%;
@@ -53,7 +57,21 @@ body::after {
     text-shadow: 0 0 5px #fff;
     text-transform: uppercase;
     letter-spacing: 2px;
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
 }
+
+/* ── Timer display: VT323 gives authentic CRT digit feel ─────────────────── */
+#hud-timer {
+    font-family: 'VT323', monospace !important;
+    letter-spacing: 4px !important;
+}
+
+/* ── Candy counter: same digital treatment ───────────────────────────────── */
+#candy-label {
+    font-family: 'VT323', monospace !important;
+    letter-spacing: 3px !important;
+}
+
 
 .glitch {
     position: relative;

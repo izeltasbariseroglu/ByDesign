@@ -14,14 +14,28 @@ export class CaptureSystem {
     }
 
     async requestCameraPermission() {
+        // Guard: if already streaming, don't restart
+        if (this.stream) {
+            console.log('CaptureSystem: camera already active — skipping duplicate request.');
+            return true;
+        }
         try {
             this.stream = await navigator.mediaDevices.getUserMedia({ video: true });
             this.video.srcObject = this.stream;
-            this.video.play();
-            console.log("Camera access granted.");
+            this.video.muted     = true;     // Required for autoplay policy in many browsers
+            this.video.playsInline = true;
+            try {
+                await this.video.play();
+            } catch (playErr) {
+                // AbortError: play() interrupted by a concurrent load — stream is still connected.
+                // This is safe to ignore; the video will resume automatically.
+                if (playErr.name !== 'AbortError') throw playErr;
+                console.warn('CaptureSystem: video.play() AbortError (harmless duplicate call) —', playErr.message);
+            }
+            console.log('Camera access granted.');
             return true;
         } catch (error) {
-            console.error("Camera access denied:", error);
+            console.error('Camera access denied:', error);
             return false;
         }
     }

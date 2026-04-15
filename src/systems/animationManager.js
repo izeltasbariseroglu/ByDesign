@@ -99,6 +99,27 @@ export class AnimationManager {
 
                 this.scene.add(this.characterModel);
 
+                // Post-load texture sanitization:
+                // GLTFLoader marks all embedded textures with needsUpdate=true upon
+                // parse completion. If the model is rendered (even via shadow map)
+                // before the GPU has processed the images, Three.js logs:
+                // "Texture marked for update but no image data found."
+                // Reset here — Three.js will re-set needsUpdate when actually needed.
+                const TEX_SLOTS = ['map','normalMap','roughnessMap','metalnessMap','emissiveMap','aoMap'];
+                this.characterModel.traverse((node) => {
+                    if (!node.isMesh) return;
+                    // Keep shadow disabled while invisible; revealCharacter() can re-enable
+                    node.castShadow    = false;
+                    node.receiveShadow = false;
+                    const mats = Array.isArray(node.material) ? node.material : [node.material];
+                    mats.forEach(mat => {
+                        if (!mat) return;
+                        TEX_SLOTS.forEach(slot => {
+                            if (mat[slot]) mat[slot].needsUpdate = false;
+                        });
+                    });
+                });
+
                 // AnimationMixer
                 if (gltf.animations && gltf.animations.length > 0) {
                     this.characterMixer = new THREE.AnimationMixer(this.characterModel);

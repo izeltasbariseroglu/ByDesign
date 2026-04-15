@@ -11,6 +11,18 @@ import { MazeGenerator } from '../maze/mazeGenerator.js';
 import { HUD } from '../ui/hud.js';
 import { EndScreen } from '../ui/endScreen.js';
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  QA / DEBUG MODE
+//  Set to FALSE and remove this block before freezing for exhibition.
+//
+//  Hotkeys (only active when game has started):
+//    1  → Jump to t = 115 s  (5 s before BREAK — tests camera, character, input manipulation)
+//    2  → Jump to t = 145 s  (5 s before END   — tests kneel, glitch, dual-photo end screen)
+//    3  → Force 9 candies collected + clear scene  (tests Provoke Engine messages)
+//    ~  → Toggle debug overlay panel
+// ═══════════════════════════════════════════════════════════════════════════
+export const QA_MODE_ENABLED = true;
+
 export class Game {
     constructor() {
         this.scene = null;
@@ -56,27 +68,30 @@ export class Game {
         this.scene.background = new THREE.Color(0x87CEEB);
         this.scene.fog = new THREE.Fog(0xf0f8ff, 1, 50);   // Alice Blue Light Fog
         
-        // 360 Seamless Sky Dome
+        // 360 Seamless Sky Dome — built inside onLoad so texture.image is never null
         const textureLoader = new THREE.TextureLoader();
-        const skyTexture = textureLoader.load('/assets/sky_texture.jpg');
-        skyTexture.wrapS = THREE.MirroredRepeatWrapping;
-        skyTexture.wrapT = THREE.MirroredRepeatWrapping;
-        skyTexture.repeat.set(4, 2); // Repeat and mirror to hide all edge seams
-        skyTexture.colorSpace = THREE.SRGBColorSpace;
+        textureLoader.load('/assets/sky_texture.jpg', (skyTexture) => {
+            skyTexture.wrapS = THREE.MirroredRepeatWrapping;
+            skyTexture.wrapT = THREE.MirroredRepeatWrapping;
+            skyTexture.repeat.set(4, 2);
+            skyTexture.colorSpace = THREE.SRGBColorSpace;
 
-        const skyGeo = new THREE.SphereGeometry(400, 64, 32);
-        const skyMat = new THREE.MeshBasicMaterial({
-            map: skyTexture,
-            side: THREE.BackSide,
-            fog: false // Sky is behind fog
+            const skyGeo = new THREE.SphereGeometry(400, 64, 32);
+            const skyMat = new THREE.MeshBasicMaterial({
+                map: skyTexture,
+                side: THREE.BackSide,
+                fog: false,
+            });
+            const sky = new THREE.Mesh(skyGeo, skyMat);
+            this.scene.add(sky);
+        }, undefined, () => {
+            console.warn('game.js: sky texture not found — falling back to scene.background colour.');
         });
-        const sky = new THREE.Mesh(skyGeo, skyMat);
-        this.scene.add(sky);
         const sun = new THREE.DirectionalLight(0xffffff, 1.2);
         sun.position.set(50, 100, 50);
         sun.castShadow = true;
-        sun.shadow.mapSize.width = 2048;
-        sun.shadow.mapSize.height = 2048;
+        sun.shadow.mapSize.width  = 1024; // Reduced from 2048 — safe for exhibit hardware
+        sun.shadow.mapSize.height = 1024;
         sun.shadow.camera.left = -50;
         sun.shadow.camera.right = 50;
         sun.shadow.camera.top = 50;
@@ -96,7 +111,7 @@ export class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
         // 2. Systems Setup
         this.input = new InputManipulator();
@@ -109,28 +124,56 @@ export class Game {
         this.player = new PlayerController(this.camera, this.input, this.maze, this.audio);
         this.player.addToScene(this.scene);
 
-        // Kick off async candy GLB preload — game remains playable while this loads
+        // ── LoadingManager: block PROVOKE until all GLBs are fully downloaded ──
+        this._assetsReady = false;
+        this._showLoadingOverlay();
         this.maze.initCandies().then(() => {
             console.log('ByDesign: Candy GLB ready — all 9 instances spawned.');
+            // Character GLB load is async too — wait for both via a small poll
+            this._waitForCharacterThenUnlock();
         });
 
         // 3. Wait for camera permission (click to start)
         this.hud.update("LOCKED", "", this.player.position, this.maze.getMazeInfo());
         
+        this._cameraRequestPending = false; // Guard against double-click race condition
+
         const setupStart = async () => {
-            console.log("ByDesign: Requesting camera...");
-            const hasCamera = await this.capture.requestCameraPermission();
-            if (hasCamera) {
-                this.startGameTimeline();
+            // Block start until both GLBs are fully loaded
+            if (!this._assetsReady) {
+                console.log('ByDesign: Click received but assets not ready yet — ignoring.');
+                return;
+            }
+            // Prevent concurrent camera requests from double-clicks
+            if (this._cameraRequestPending) {
+                console.log('ByDesign: Camera request already in flight — ignoring duplicate click.');
+                return;
+            }
+            this._cameraRequestPending = true;
+
+            try {
+                console.log('ByDesign: Requesting camera...');
+                const hasCamera = await this.capture.requestCameraPermission();
                 document.removeEventListener('click', setupStart);
-            } else {
-                // FIX: Replace blocking alert() with themed DOM overlay
+                if (hasCamera) {
+                    this.startGameTimeline();
+                } else {
+                    this._showCameraDeniedOverlay();
+                }
+            } catch (err) {
+                console.error('ByDesign: Unexpected error during camera setup —', err);
                 document.removeEventListener('click', setupStart);
-                this._showCameradeniedOverlay();
+                this._showCameraDeniedOverlay();
+            } finally {
+                this._cameraRequestPending = false;
             }
         };
 
         document.addEventListener('click', setupStart);
+
+        // QA hotkeys registered once at init time
+        this._setupQAHotkeys();
+
         this.isInitialized = true;
     }
 
@@ -188,10 +231,13 @@ export class Game {
             // 1. 3D reality tears — Chromatic Aberration burst + GlitchPass explosion
             this.glitchSystem.triggerCollapse();
 
-            // 2. Character kneels
+            // 2. Audio collapse burst — digital screech / white-noise explosion
+            this.audio.triggerCollapse();
+
+            // 3. Character kneels
             this.player.triggerKneel();
 
-            // 3. Final photo + END state + locked screen (after 1.5s so kneel plays first)
+            // 4. Final photo + END state + locked screen (after 1.5s so kneel plays first)
             setTimeout(() => {
                 this.capture.takeFinalPhoto();
                 this.stateMachine.changeState("END");
@@ -244,11 +290,12 @@ export class Game {
             const dist = playerPos.distanceTo(candyWorldPos);
             
             if (dist < 1.5) {
-                // Collect Candy
+                // Collect the candy: remove from scene AND from the live array
                 this.scene.remove(mesh);
+                candies.splice(i, 1); // Fix: prevent memory leak — remove from array
                 this.collectedCandies++;
                 this.player.triggerCollectionEffect();
-                this.audio.triggerFootstep(); // Reusing footstep sound as collection feedback for now
+                this.audio.triggerCandyPickup(); // Dedicated retro "ding" sound
                 console.log(`ByDesign: Candy collected! ${this.collectedCandies}/10`);
 
                 if (this.collectedCandies === 9) {
@@ -283,8 +330,18 @@ export class Game {
 
     render() {
         if (this.glitchSystem) {
-            // Route all rendering through the EffectComposer pipeline
-            this.glitchSystem.render();
+            try {
+                // Route all rendering through the EffectComposer pipeline
+                this.glitchSystem.render();
+            } catch (e) {
+                // If the post-processing pipeline fails, fall back to direct render
+                // so the scene is never left black. Log once.
+                if (!this._glitchFallbackLogged) {
+                    console.warn('GlitchSystem render failed — falling back to direct render:', e);
+                    this._glitchFallbackLogged = true;
+                }
+                this.renderer.render(this.scene, this.camera);
+            }
         } else if (this.renderer && this.scene && this.camera) {
             // Fallback: direct render if GlitchSystem isn't ready yet
             this.renderer.render(this.scene, this.camera);
@@ -318,5 +375,226 @@ export class Game {
         document.body.appendChild(overlay);
         console.warn("ByDesign: Camera denied — overlay shown, experience halted.");
     }
+
+    // ── LoadingManager helpers ────────────────────────────────────────────────
+
+    /** Shows the "Yükleniyor..." overlay while GLBs are being fetched */
+    _showLoadingOverlay() {
+        if (document.getElementById('loading-overlay')) return;
+        const el = document.createElement('div');
+        el.id = 'loading-overlay';
+        el.style.cssText = `
+            position: fixed; inset: 0;
+            background: #000;
+            z-index: 8000;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            gap: 20px;
+            font-family: 'VT323', 'Share Tech Mono', 'Courier New', monospace;
+            color: #ccc; text-transform: uppercase; letter-spacing: 4px;
+        `;
+        el.innerHTML = `
+            <div id="loading-label" style="font-size:2.2rem; color:#ff69b4; text-shadow: 0 0 10px #ff69b4;">
+                YÜKLENIYOR...</div>
+            <div id="loading-sub" style="font-size:0.9rem; color:#444; letter-spacing:3px;">
+                Varlıklar hazırlanıyor, lütfen bekleyin.</div>
+        `;
+        document.body.appendChild(el);
+        console.log('ByDesign: Loading overlay shown.');
+    }
+
+    /** Hides the loading overlay and marks assets as ready */
+    _hideLoadingOverlay() {
+        const el = document.getElementById('loading-overlay');
+        if (el) {
+            el.style.transition = 'opacity 0.6s ease';
+            el.style.opacity = '0';
+            setTimeout(() => el.remove(), 700);
+        }
+        this._assetsReady = true;
+        console.log('ByDesign: All GLBs loaded — experience unlocked for click-to-start.');
+    }
+
+    /**
+     * After candy GLB resolves, poll until the character model is also loaded,
+     * then remove the loading overlay. Character GLB is loaded lazily inside
+     * AnimationManager — we check its reference every 200 ms.
+     */
+    _waitForCharacterThenUnlock() {
+        const maxWait  = 30000; // give up after 30 s (slow networks)
+        const interval = 200;
+        let elapsed    = 0;
+
+        const poll = () => {
+            const charReady = this.player?.animationManager?.characterModel !== null
+                           && this.player?.animationManager?.characterModel !== undefined;
+
+            if (charReady || elapsed >= maxWait) {
+                if (!charReady) {
+                    console.warn('ByDesign: Character GLB timed out — proceeding without it.');
+                }
+                this._hideLoadingOverlay();
+                return;
+            }
+
+            elapsed += interval;
+            setTimeout(poll, interval);
+        };
+
+        poll();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  QA / DEBUG HOTKEYS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    _setupQAHotkeys() {
+        if (!QA_MODE_ENABLED) return; // One-line disable for release
+
+        // ── Build the debug overlay panel (hidden by default) ──────────────
+        const panel = document.createElement('div');
+        panel.id    = 'qa-debug-panel';
+        panel.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 20px;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.82);
+            border: 1px solid #ff69b4;
+            border-radius: 4px;
+            padding: 14px 20px;
+            z-index: 99999;
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            font-family: 'VT323', 'Share Tech Mono', monospace;
+            font-size: 1rem;
+            color: #ff69b4;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            min-width: 280px;
+            pointer-events: none;
+        `;
+        panel.innerHTML = `
+            <div style="color:#fff; font-size:1.15rem; border-bottom:1px solid #333; padding-bottom:6px; margin-bottom:4px;">
+                [ QA DEBUG MODE ]
+            </div>
+            <div style="color:#888; font-size:0.78rem;">~ = toggle panel</div>
+            <div><span style="color:#ffff66;">1</span> → Jump to <span style="color:#fff;">t = 115s</span> <span style="color:#555;">(BREAK -5s)</span></div>
+            <div><span style="color:#ffff66;">2</span> → Jump to <span style="color:#fff;">t = 145s</span> <span style="color:#555;">(END -5s)</span></div>
+            <div><span style="color:#ffff66;">3</span> → Set candies = 9, trigger Provoke Engine</div>
+            <div id="qa-status" style="margin-top:8px; color:#44ff88; font-size:0.85rem;">&nbsp;</div>
+        `;
+        document.body.appendChild(panel);
+
+        // ── Helper: flash a status message in the panel ────────────────────
+        const showStatus = (msg, color = '#44ff88') => {
+            const el = document.getElementById('qa-status');
+            if (!el) return;
+            el.style.color = color;
+            el.textContent = msg;
+            clearTimeout(this._qaStatusTimer);
+            this._qaStatusTimer = setTimeout(() => { el.textContent = '\u00a0'; }, 2500);
+        };
+
+        // ── Helper: force a state+audio+glitch phase, idempotently ─────────
+        const forcePhase = (stateName) => {
+            if (!this.stateMachine.is(stateName)) {
+                this.stateMachine.changeState(stateName);
+            }
+            this.glitchSystem?.setPhase(stateName);
+            // Reset internal phase guard so setPhase() is not skipped
+            if (this.audio) this.audio.phase = '';
+            this.audio?.setPhase(stateName);
+        };
+
+        // ── Keydown handler ───────────────────────────────────────────────
+        document.addEventListener('keydown', (e) => {
+
+            // Toggle panel with Tilde (`~`)
+            if (e.key === '`' || e.key === '~') {
+                panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+                return;
+            }
+
+            // All other hotkeys require the game to have actually started
+            if (!this.hasStarted) {
+                console.log('[QA] Hotkey ignored — game not started yet.');
+                return;
+            }
+
+            // ── [ 1 ] Jump to t = 115s — 5 seconds before BREAK ──────────
+            if (e.key === '1') {
+                console.warn('[QA] Time jump → 115 s (BREAK in 5 s)');
+
+                this.timer.elapsedTime = 115;
+
+                // Ensure we are in PLAY state with correct subsystem phases
+                if (!this.stateMachine.is('PLAY')) {
+                    forcePhase('PLAY');
+                }
+
+                // Reset guard flags so the normal BREAK transition fires naturally
+                this.exitTriggered = false;
+                this.endTriggered  = false;
+
+                // Release pointer lock in case it was blocking
+                if (document.pointerLockElement) document.exitPointerLock();
+
+                showStatus('⏩ JUMPED → t=115s  |  BREAK in 5s', '#ffff66');
+                return;
+            }
+
+            // ── [ 2 ] Jump to t = 145s — 5 seconds before END ────────────
+            if (e.key === '2') {
+                console.warn('[QA] Time jump → 145 s (END / COLLAPSE in 5 s)');
+
+                // Apply all BREAK-phase side effects if not already in BREAK
+                if (!this.stateMachine.is('BREAK') && !this.stateMachine.is('END')) {
+                    forcePhase('BREAK');
+                    this.input.setMode('BREAK');
+                    this.cameraSystem.startTopDownTransition(this.player.position);
+                    this.player.revealCharacter();
+                    this.hud.activateBreakTimer();
+                }
+
+                this.timer.elapsedTime = 145;
+
+                // BREAK was already "triggered"; END has not fired yet
+                this.exitTriggered = true;
+                this.endTriggered  = false;
+
+                if (document.pointerLockElement) document.exitPointerLock();
+
+                showStatus('⏩ JUMPED → t=145s  |  COLLAPSE in 5s', '#ff6644');
+                return;
+            }
+
+            // ── [ 3 ] Instant: 9 candies + activate Provoke Engine ────────
+            if (e.key === '3') {
+                console.warn('[QA] Forcing 9 candies — Provoke Engine activating.');
+
+                // Remove all candy meshes from scene and clear the array
+                const candies = this.maze.candies;
+                for (let i = candies.length - 1; i >= 0; i--) {
+                    const mesh = candies[i].getMesh();
+                    if (mesh.parent) this.scene.remove(mesh);
+                }
+                this.maze.candies.length = 0; // Empty array in-place
+
+                this.collectedCandies = 9;
+
+                if (!this.isProvoking) {
+                    this.startProvokeEngine();
+                }
+
+                showStatus('🍭 CANDIES = 9/10  |  PROVOKE ENGINE ON', '#ff69b4');
+                return;
+            }
+        });
+
+        console.log(`[QA] Debug hotkeys registered. Panel: ~ key | 1=115s | 2=145s | 3=9candies`);
+    }
 }
+
 

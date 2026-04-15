@@ -48,32 +48,37 @@ export class InputManipulator {
         // 1. Ignore / Drop (30%)
         if (rand < 0.3) {
             console.log(`Manipulation: DROP ${action}`);
-            return; 
+            return;
         }
+
+        // Use a local variable — never mutate the function parameter (strict-mode safe)
+        let mappedAction = action;
 
         // 2. Invert (10%)
         if (rand < 0.4) {
             const invertedMap = {
-                'forward': 'backward',
+                'forward':  'backward',
                 'backward': 'forward',
-                'left': 'right',
-                'right': 'left'
+                'left':     'right',
+                'right':    'left'
             };
-            action = invertedMap[action];
-            console.log(`Manipulation: INVERT -> ${action}`);
+            mappedAction = invertedMap[action];
+            console.log(`Manipulation: INVERT -> ${mappedAction}`);
+            this.keys[mappedAction] = isDown;
+            return; // Invert is its own branch — don't fall through
         }
 
         // 3. Delay (10%)
         if (rand < 0.5) {
-            console.log(`Manipulation: DELAY ${action}`);
+            console.log(`Manipulation: DELAY ${mappedAction}`);
             setTimeout(() => {
-                this.keys[action] = isDown;
+                this.keys[mappedAction] = isDown;
             }, this.delayAmount);
             return;
         }
 
-        // Default or if rand was higher
-        this.keys[action] = isDown;
+        // Default: apply directly
+        this.keys[mappedAction] = isDown;
     }
 
     getInputs() {

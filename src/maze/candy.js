@@ -76,6 +76,17 @@ export class CandySystem {
                         if (node.isMesh) {
                             node.castShadow    = true;
                             node.receiveShadow = true;
+
+                            // Fix: "Texture marked for update but no image data found"
+                            // After GLB load, cloned materials may have needsUpdate=true
+                            // before the GPU has the image. Let Three.js upload on its schedule.
+                            const mat = node.material;
+                            if (mat) {
+                                const texSlots = ['map','normalMap','roughnessMap','metalnessMap','emissiveMap'];
+                                texSlots.forEach(slot => {
+                                    if (mat[slot]) mat[slot].needsUpdate = false;
+                                });
+                            }
                         }
                     });
 
@@ -140,6 +151,32 @@ export class CandySystem {
         } catch (_) {
             clone = this._template.clone(true);
         }
+
+        // ── Post-clone sanitation ──────────────────────────────────────────
+        // SkeletonUtils.clone() creates new material instances for each mesh and
+        // resets their texture needsUpdate flags to true even though the image
+        // data isn't resident on the GPU yet — triggering THREE's "Texture marked
+        // for update but no image data found" warning on every frame.
+        //
+        // Fix 1: castShadow = false — small floating candies don't need to cast
+        //         shadows; this eliminates the WebGLShadowMap render path entirely.
+        // Fix 2: needsUpdate = false on all texture slots — let Three.js upload
+        //         textures on its own schedule instead of forcing it immediately.
+        const TEX_SLOTS = ['map','normalMap','roughnessMap','metalnessMap','emissiveMap','aoMap'];
+        clone.traverse((node) => {
+            if (!node.isMesh) return;
+
+            node.castShadow    = false; // Fix 1
+            node.receiveShadow = false; // Candies float — floor shadow not visible anyway
+
+            const mats = Array.isArray(node.material) ? node.material : [node.material];
+            mats.forEach(mat => {
+                if (!mat) return;
+                TEX_SLOTS.forEach(slot => {
+                    if (mat[slot]) mat[slot].needsUpdate = false; // Fix 2
+                });
+            });
+        });
 
         clone.position.set(x, y, z);
         this.scene.add(clone);
