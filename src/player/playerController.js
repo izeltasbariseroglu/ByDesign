@@ -14,7 +14,7 @@ export class PlayerController {
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
 
-        this.distanceMoved = 0; // Adım sesi için mesafe takibi
+        this.distanceMoved = 1.3; // Pre-prime: first footstep triggers after ~0.1 units of movement
 
         this.lookSpeed = 0.002;
         this.pitch = 0;
@@ -129,8 +129,8 @@ export class PlayerController {
         }
     }
 
-    triggerCollectionEffect() {
-        if (this.animationManager) this.animationManager.reachOut();
+    triggerCollectionEffect(targetWorldPos) {
+        if (this.animationManager) this.animationManager.reachOut(targetWorldPos);
     }
 
     revealCharacter() {

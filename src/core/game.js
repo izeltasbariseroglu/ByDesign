@@ -102,7 +102,11 @@ export class Game {
         this.scene.add(hemiLight);
         
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.camera.position.set(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon 
+        this.camera.position.set(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon
+        // CRITICAL: camera must be in the scene graph for camera.add() children
+        // (the POV arms) to be rendered. Without this line, arm meshes are
+        // silently ignored by Three.js's render traversal every single frame.
+        this.scene.add(this.camera);
 
         this.renderer = new THREE.WebGLRenderer({
             canvas: document.getElementById('game-canvas'),
@@ -289,18 +293,30 @@ export class Game {
 
             const dist = playerPos.distanceTo(candyWorldPos);
             
-            if (dist < 1.5) {
-                // Collect the candy: remove from scene AND from the live array
-                this.scene.remove(mesh);
-                candies.splice(i, 1); // Fix: prevent memory leak — remove from array
-                this.collectedCandies++;
-                this.player.triggerCollectionEffect();
-                this.audio.triggerCandyPickup(); // Dedicated retro "ding" sound
-                console.log(`ByDesign: Candy collected! ${this.collectedCandies}/10`);
+            if (dist < 1.5 && !candy.isBeingCollected) {
+                candy.isBeingCollected = true; // Prevent multiple triggers while grabbing
+                
+                // 1. Immediately trigger the visual POV arm reach animation
+                // Key Fix: We pass the exact Target Vector in 3D world space!
+                this.player.triggerCollectionEffect(candyWorldPos);
 
-                if (this.collectedCandies === 9) {
-                    this.startProvokeEngine();
-                }
+                // 2. Delay the actual "collection" (mesh removal, sound, logic) by 250ms 
+                //    so it synchronizes perfectly with the hand reaching its target!
+                setTimeout(() => {
+                    this.scene.remove(mesh);
+                    
+                    // Safely remove from array
+                    const cIdx = candies.indexOf(candy);
+                    if (cIdx > -1) candies.splice(cIdx, 1);
+
+                    this.collectedCandies++;
+                    this.audio.triggerCandyPickup(); // "ding" sound on grab point
+                    console.log(`ByDesign: Candy collected! ${this.collectedCandies}/10`);
+
+                    if (this.collectedCandies === 9) {
+                        this.startProvokeEngine();
+                    }
+                }, 250);
             }
         }
     }
