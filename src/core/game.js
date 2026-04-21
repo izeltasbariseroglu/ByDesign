@@ -23,8 +23,7 @@ import { EndScreen } from '../ui/endScreen.js';
 // ═══════════════════════════════════════════════════════════════════════════
 export const QA_MODE_ENABLED = true;
 
-// Viewmodel arms render on this dedicated layer so they are drawn AFTER
-// clearDepth() — they will never clip into walls regardless of geometry.
+// Katman 2: Kollar/Viewmodel (Duvar clipping fix)
 export const VIEWMODEL_LAYER = 2;
 
 export class Game {
@@ -100,16 +99,23 @@ export class Game {
         sun.shadow.camera.right = 50;
         sun.shadow.camera.top = 50;
         sun.shadow.camera.bottom = -50;
+        sun.layers.enable(VIEWMODEL_LAYER); // Kollar aydınlansın
         this.scene.add(sun);
 
         const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x3d5c1f, 0.6); // Sky to Grass bounce
+        hemiLight.layers.enable(VIEWMODEL_LAYER); // Kollar aydınlansın
         this.scene.add(hemiLight);
         
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
         this.camera.position.set(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon
+        
+        // AAA Standard: Independent Viewmodel Camera
+        // 50 degree FOV prevents viewmodel stretching when main FOV is high
+        this.viewmodelCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
+        this.camera.add(this.viewmodelCamera);
+        
         // CRITICAL: camera must be in the scene graph for camera.add() children
-        // (the POV arms) to be rendered. Without this line, arm meshes are
-        // silently ignored by Three.js's render traversal every single frame.
+        // (the POV arms) to be rendered.
         this.scene.add(this.camera);
 
         this.renderer = new THREE.WebGLRenderer({
@@ -140,7 +146,7 @@ export class Game {
         this.glitchSystem.setPhase('LOCKED');
         this.audio = new AudioSystem();
 
-        this.player = new PlayerController(this.camera, this.input, this.maze, this.audio, this.loadingManager);
+        this.player = new PlayerController(this.camera, this.viewmodelCamera, this.input, this.maze, this.audio, this.loadingManager);
         this.player.addToScene(this.scene);
 
         // ── Loading Sequence ──────────────────────────────────────────────────
@@ -380,9 +386,33 @@ export class Game {
     render() {
         if (!this.renderer || !this.scene || !this.camera) return;
 
+        // AutoClear false yapalım ki post-processing sonrası üzerine çizebilelim
+        this.renderer.autoClear = false;
+        this.renderer.clear();
+
+        const isPOV = this.stateMachine?.is?.('PLAY') || this.stateMachine?.is?.('PROVOKE');
+
         if (this.glitchSystem) {
             try {
-                this.glitchSystem.render();
+                if (isPOV) {
+                    // Pass 1: Dünya (Viewmodel Hariç)
+                    this.camera.layers.disable(VIEWMODEL_LAYER);
+                    this.glitchSystem.render();
+
+                    // Pass 2: Viewmodel (Her şeyin üstünde)
+                    this.renderer.clearDepth();
+                    this.viewmodelCamera.layers.set(VIEWMODEL_LAYER);
+                    
+                    const oldBg = this.scene.background;
+                    this.scene.background = null; // KRİTİK DÜZELTME: Gökyüzü ikinci geçişte labirenti silmesin
+                    this.renderer.render(this.scene, this.viewmodelCamera);
+                    this.scene.background = oldBg;
+                    
+                    // Reset
+                    this.camera.layers.enableAll();
+                } else {
+                    this.glitchSystem.render();
+                }
             } catch (e) {
                 if (!this._glitchFallbackLogged) {
                     console.warn('GlitchSystem render failed — falling back:', e);
@@ -400,6 +430,12 @@ export class Game {
         if (!this.camera) return;
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
+        
+        if (this.viewmodelCamera) {
+            this.viewmodelCamera.aspect = window.innerWidth / window.innerHeight;
+            this.viewmodelCamera.updateProjectionMatrix();
+        }
+
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         if (this.glitchSystem) {
             this.glitchSystem.onResize(window.innerWidth, window.innerHeight);
