@@ -81,14 +81,14 @@ export class AnimationManager {
             emissiveIntensity: 0.2
         });
 
-        // ── Camera-Space Positioning (Forearm-only FPS view) ──
+        // ── Camera-Space Positioning (SHOULDER PIVOT) ──
         this.R = {
-            x:   0.42,    // Pulled much wider apart so they aren't stuck in front 
-            y:  -0.55,    // Pulled significantly downwards and back
-            z:  -0.05,    // Maintained proximity
-            rx:  1.00,    // Relaxed angle, laying flatter
-            rzR: -0.15,   // Point slightly inward naturally
-            rzL:  0.15,   
+            x:   0.38,    // Gerçekçi omuz genişliği
+            y:  -0.10,    // Boyun hizası (Kameranın hemen altı/arkası)
+            z:   0.20,    // Kameranın 20cm arkasında (Görüş alanından dışarıda başlar)
+            rx:  1.20,    // Kollar öne/aşağı doğru dinlenir (1.2 radyan = ~68 derece ileri)
+            rzR: -0.15,
+            rzL:  0.15,
         };
 
         this.rightArmRoot = this._buildArm( this.R.x, this.R.rzR, false);
@@ -98,92 +98,80 @@ export class AnimationManager {
     }
 
     _buildArm(offsetX, rollZ, isLeft) {
-        const jointMat = new THREE.MeshStandardMaterial({
-            color: 0xdfa98e, // Make joints match skin color so they blend in
-            roughness: 0.8,
-        });
-
-        // SCALE FACTOR: Increased by another 25% per user request (2.42 -> 3.02)
+        const jointMat = new THREE.MeshStandardMaterial({ color: 0xdfa98e, roughness: 0.8 });
         const S = 3.02;
 
-        // ── ELBOW (ROOT) ──
-        const elbow = new THREE.Group();
-        elbow.position.set(offsetX, this.R.y, this.R.z);
-        elbow.rotation.x = this.R.rx;
-        elbow.rotation.z = rollZ;
-        elbow.frustumCulled = false;
+        // ── SHOULDER PIVOT (ROOT) ──
+        // Bütün el/kol bu omuzdan pendulum gibi sarkaçlanır
+        const shoulder = new THREE.Group();
+        shoulder.position.set(offsetX, this.R.y, this.R.z);
+        shoulder.rotation.x = this.R.rx;
+        shoulder.rotation.z = rollZ;
+        shoulder.frustumCulled = false;
 
-        const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.04 * S, 16, 16), jointMat);
-        elbow.add(elbowJoint);
+        const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.05 * S, 16, 16), jointMat);
+        shoulder.add(shoulderJoint);
 
-        // ── FOREARM ──
-        const forearmLen = 0.28 * S;
-        // radius: 0.035 -> 0.035 * S
+        // ── ARM LIMB (Pendulum String) ──
+        const armLimb = new THREE.Group();
+        
+        const forearmLen = 0.28 * S; // Orijinal mükemmel uzunluğa geri döndürüldü
         const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04 * S, forearmLen, 4, 16), this.porcelainMat);
-        forearm.position.y = -(forearmLen/2 + 0.04 * S); 
+        forearm.position.y = -(forearmLen/2 + 0.05 * S); 
         forearm.frustumCulled = false;
-        elbow.add(forearm);
+        
+        armLimb.add(forearm);
 
         // ── WRIST ──
         const wrist = new THREE.Group();
-        wrist.position.y = -(forearmLen + 0.08 * S); 
-
+        wrist.position.y = -(forearmLen + 0.08 * S); // Kolun ucuna iliştirilir
         const wristJoint = new THREE.Mesh(new THREE.SphereGeometry(0.035 * S, 16, 16), jointMat);
         wrist.add(wristJoint);
 
         // ── HAND ──
         const hand = new THREE.Group();
         
-        // Palm - Widened slightly to cover the base of all fingers
         const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04 * S, 0.05 * S, 4, 16), this.porcelainMat);
         palm.position.y = -0.055 * S;
         palm.scale.set(1.1, 1, 0.5); 
         hand.add(palm);
 
-        // Fingers
         const createFinger = (radius, length, xOff, yOff, rotZ, rotX) => {
             const fGrp = new THREE.Group();
             fGrp.position.set(xOff, yOff, 0.005 * S);
             fGrp.rotation.set(rotX, 0, rotZ);
-            
-            // KNUCKLE JOINT: A sphere perfectly bridging the gap between palm and finger capsule
             const knuckle = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.2, 16, 16), this.porcelainMat);
             fGrp.add(knuckle);
-
             const fMesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 8), this.porcelainMat);
-            fMesh.position.y = -(length / 2 + radius * 0.8); // Embedded deeply into the knuckle
+            fMesh.position.y = -(length / 2 + radius * 0.8); 
             fGrp.add(fMesh);
             return fGrp;
         };
 
         const fingers = new THREE.Group();
-        // Shift base UP into the palm geometry to completely seal any visual gaps
         const fBase = -0.088 * S; 
 
-        // Index, Middle, Ring
         const idx = createFinger(0.009 * S, 0.06 * S, (isLeft ?  0.022 : -0.022) * S,  fBase, isLeft ? -0.08 :  0.08, 0.05);
         const mid = createFinger(0.010 * S, 0.07 * S, 0,                               fBase - 0.005 * S, 0, 0.02);
         const rng = createFinger(0.008 * S, 0.05 * S, (isLeft ? -0.020 :  0.020) * S,  fBase, isLeft ?  0.10 : -0.10, 0.08);
-        
-        // Thumb (moved slightly to the side & up to embed naturally)
         const thm = createFinger(0.012 * S, 0.045 * S, (isLeft ?  0.038 : -0.038) * S, -0.045 * S, isLeft ?  0.60 : -0.60, -0.30);
         
         fingers.add(idx, mid, rng, thm);
-        fingers.rotation.x = -0.15; // Natural curl
+        fingers.rotation.x = -0.15; 
         hand.add(fingers);
         
-        hand.rotation.x = -0.1; // Rest angle
+        hand.rotation.x = -0.1; 
         
         wrist.add(hand);
-        elbow.add(wrist);
+        armLimb.add(wrist);
+        shoulder.add(armLimb);
 
-        elbow.userData.elbow   = elbow;
-        elbow.userData.wrist   = wrist;
-        elbow.userData.hand    = hand;
-        elbow.userData.fingers = fingers;
-        elbow.userData.isLeft  = isLeft;
+        shoulder.userData.shoulder= shoulder;
+        shoulder.userData.wrist   = wrist;
+        shoulder.userData.hand    = hand;
+        shoulder.userData.fingers = fingers;
 
-        return elbow;
+        return shoulder;
     }
 
     // Compatibility getters for external callers (showCharacter, etc.)
@@ -314,85 +302,109 @@ export class AnimationManager {
         if (this.isReaching) return;
         this.isReaching = true;
 
-        const arm = this.rightArmRoot; 
+        const arm = this.rightArmRoot;  // This is the SHOULDER
         if (!arm) { this.isReaching = false; return; }
 
         const wrist    = arm.userData.wrist;
         const fingers  = arm.userData.fingers;
 
-        // Dynamic 3D Tracking: Calculate rotation to aim the forearm exactly at the candy!
-        let targetQuaternion;
-        if (targetWorldPos && this.camera) {
-            // Convert candy world coordinate into the camera's local coordinate space
-            const localTarget = this.camera.worldToLocal(targetWorldPos.clone());
-            // Direction from the elbow joint to the candy
-            const dir = localTarget.sub(arm.position).normalize();
-            // In our rig, the default "forward" for the forearm block is exactly straight down (-Y)
-            targetQuaternion = new THREE.Quaternion().setFromUnitVectors(
-                new THREE.Vector3(0, -1, 0), 
-                dir
-            );
-        } else {
-            // Fallback to static point-forward math if position is missing
-            const tgEuler = new THREE.Euler(1.95, 0, 0.05);
-            targetQuaternion = new THREE.Quaternion().setFromEuler(tgEuler);
-        }
+        // Orijinal İstinat Açıları
+        const REST_RX  = this.R.rx;
+        const REST_RY  = 0;
+        const REST_Z   = this.R.z;
 
-        const startQuaternion = arm.quaternion.clone();
+        // PENDULUM SARKINCI (Hedef Değerler)
+        // Omuzdaki "x" rotasyonu BÜYÜYEREK kolu ileri fırlatır! (+0.6 rad)
+        const REACH_RX = REST_RX + 0.60; 
+        const REACH_RY = 0.15; // Hedefe dönme
+        const REACH_Z  = REST_Z - 0.15; // Minik itiş
+        
+        const startWristRX = wrist.rotation.x;
+        // Sahte Dirsek/Bilek Bükülmesi: Uzanırken bilek havaya kalkar ve eli ileri gösterir
+        const REACH_WRIST_RX = -0.5; 
 
-        // Phase 1: Reach out and open hand
-        // Syncs directly with the 250ms candy disappearance delay in game.js !
-        this._tween(250, (p) => {
-            const ease = p * (2 - p);
+        // ASİMETRİK ZAMANLAMA 1: EASE-OUT CUBIC (Tetikçi Fırlatışı ve Duraklama)
+        this._tween(260, (p) => {
+            const ease = 1 - Math.pow(1 - p, 3); // Hızlı atılır, hedefte kilitlenir
             
-            // SLERP (Spherical Linear Interpolation) flawlessly targets the 3D space
-            arm.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, ease);
+            // Kol sadece omuzdan devasa bir dönüş ile süzülür! (%80 rotasyon)
+            arm.rotation.x = REST_RX + (REACH_RX - REST_RX) * ease;
+            arm.rotation.y = REST_RY + (REACH_RY - REST_RY) * ease;
 
-            // Wrist stays mostly steady, lifting slightly
-            wrist.rotation.x = -(0.5 * ease); 
+            // Çok minik omuz itişi (%20 pozisyon desteği)
+            arm.position.z = REST_Z + (REACH_Z - REST_Z) * ease;
 
-            // Fingers OPEN wide preparing to grab the candy
-            fingers.rotation.x = -0.15 + (0.65 * ease); 
+            // Fake Kinematics: Bilek yukarı bükülerek ele şekil verir
+            wrist.rotation.x = startWristRX + (REACH_WRIST_RX - startWristRX) * ease;
+            wrist.rotation.z = -0.1 * ease;
+
+            // Parmaklar açık
+            fingers.rotation.x = -0.15 + (0.8 * ease); 
 
         }, () => {
-            // Phase 2: Instantly clench into a fist (GRAB!)
-            fingers.rotation.x = -1.2; // Full fist
-            wrist.rotation.x   = 0.2;  // Curl wrist inwards with the weight
+            // ----- THE SNAP (Vahşi Kavrama) -----
+            // Omuz en uç noktadayken şekere değildiği an, sadece bilek ve parmak kodla ezilir!
+            fingers.rotation.x = -1.6; // Parmaklar kilitlenir
+            wrist.rotation.x   = 0.5;  // Bilek VAHŞİCE AŞAĞI kapanıp objeyi eziyor!
+            wrist.rotation.z   = 0.3;  // Burkarak kapma
             
-            const holdQuaternion = arm.quaternion.clone();
+            // Kamera Şiddeti
+            if (this.camera) {
+                const origFOV = this.camera.fov;
+                const origPitch = this.camera.rotation.x;
+                const origRoll  = this.camera.rotation.z;
+
+                this.camera.fov = origFOV - 8.0; 
+                this.camera.rotation.x = origPitch + 0.05; 
+                this.camera.updateProjectionMatrix();
+
+                this._tween(200, (sp) => {
+                    const shakeEase = Math.pow(sp, 2); 
+                    const damp = 1 - sp;
+                    this.camera.fov = (origFOV - 8.0) + (8.0 * shakeEase);
+                    this.camera.rotation.x = (origPitch + 0.05) - (0.05 * shakeEase);
+                    this.camera.rotation.z = origRoll + (Math.sin(sp * 80) * 0.03 * damp) + ((Math.random()-0.5)*0.01*damp);
+                    this.camera.updateProjectionMatrix();
+                }, () => {
+                    this.camera.fov = origFOV;
+                    this.camera.rotation.x = origPitch;
+                    this.camera.rotation.z = origRoll;
+                    this.camera.updateProjectionMatrix();
+                });
+            }
 
             setTimeout(() => {
-                // Phase 3 & 4: Retracting and Relaxing
-                this._retractArm(arm, holdQuaternion);
+                this._retractArm(arm, arm.rotation.x, arm.rotation.y, arm.position.z, wrist.rotation.x);
             }, 60);
         });
     }
 
-    _retractArm(arm, fromQuat) {
-        // Compute the natural resting quaternion dynamically in case 'R' values were adjusted
-        const restEuler = new THREE.Euler(this.R.rx, 0, this.R.rzR);
-        const restQuat = new THREE.Quaternion().setFromEuler(restEuler);
-        
+    _retractArm(arm, fromRX, fromRY, fromZ, fromWristX) {
         const wrist    = arm.userData.wrist;
         const fingers  = arm.userData.fingers;
 
-        this._tween(450, (p) => {
-            // S-Curve ease for realistic pulling effort
-            const ease = p * p * (3 - 2 * p);
+        // ASİMETRİK ZAMANLAMA 2: EASE-IN CUBIC (Bumerang Söküş)
+        // Başta çok yavaş ve ağır çeker, sonra vücuda kamçı gibi aniden düşer.
+        this._tween(350, (p) => {
+            const ease = Math.pow(p, 3); // Ease-In
             
-            arm.quaternion.slerpQuaternions(fromQuat, restQuat, ease);
+            // Omuz salınımı yeri döner
+            arm.rotation.x = fromRX + (this.R.rx - fromRX) * ease;
+            arm.rotation.y = fromRY + (0 - fromRY) * ease;
             
-            // Wrist drops naturally back to rest
-            wrist.rotation.x = 0.2 - (0.2 * ease);
-            
-            // Fingers hold the fist shape for the first half of retraction
-            if (p < 0.5) {
-                fingers.rotation.x = -1.2; 
-            } else {
-                const releaseP = (p - 0.5) * 2; 
-                fingers.rotation.x = -1.2 + (-0.15 - -1.2) * releaseP;
-            }
+            arm.position.z = fromZ + (this.R.z - fromZ) * ease;
 
+            // Bileğin sökme anındaki kırık/ezik hali vücuda gelene kadar kalır, çarparak düzleşir
+            wrist.rotation.x = fromWristX + (0 - fromWristX) * ease;
+            wrist.rotation.z = 0.3 * (1 - ease);
+            
+            // Parmaklar yükü son ana kadar bırakmaz
+            if (p < 0.7) {
+                fingers.rotation.x = -1.6; 
+            } else {
+                const rp = (p - 0.7) / 0.3;
+                fingers.rotation.x = -1.6 + (-0.15 - -1.6) * rp;
+            }
         }, () => {
             this.isReaching = false;
         });

@@ -224,6 +224,11 @@ export class Game {
             this.glitchSystem.setPhase('BREAK');
             this.audio.setPhase('BREAK');
 
+            // --- UI/UX Auditor Requirement: Shatter the garden facade ---
+            this.scene.background = new THREE.Color(0x000000); // True black
+            this.scene.fog.color.setHex(0x550000);             // Deep red fog
+            // ------------------------------------------------------------
+
             // Reveal the character model and center the timer
             this.player.revealCharacter();
             this.hud.activateBreakTimer();
@@ -303,6 +308,7 @@ export class Game {
                 // 2. Delay the actual "collection" (mesh removal, sound, logic) by 250ms 
                 //    so it synchronizes perfectly with the hand reaching its target!
                 setTimeout(() => {
+                    this.disposeHierarchy(mesh);
                     this.scene.remove(mesh);
                     
                     // Safely remove from array
@@ -460,6 +466,24 @@ export class Game {
         poll();
     }
 
+    /** Helper: Recursively disposes geometries and materials to prevent memory leaks */
+    disposeHierarchy(node) {
+        node.traverse((child) => {
+            if (child.isMesh) {
+                if (child.geometry) {
+                    child.geometry.dispose();
+                }
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(mat => mat.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            }
+        });
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //  QA / DEBUG HOTKEYS
     // ═══════════════════════════════════════════════════════════════════════
@@ -594,7 +618,10 @@ export class Game {
                 const candies = this.maze.candies;
                 for (let i = candies.length - 1; i >= 0; i--) {
                     const mesh = candies[i].getMesh();
-                    if (mesh.parent) this.scene.remove(mesh);
+                    if (mesh.parent) {
+                        this.disposeHierarchy(mesh);
+                        this.scene.remove(mesh);
+                    }
                 }
                 this.maze.candies.length = 0; // Empty array in-place
 
