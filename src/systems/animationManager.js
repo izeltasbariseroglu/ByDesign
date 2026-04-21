@@ -1,186 +1,235 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// Arms live on Layer 2 (VIEWMODEL_LAYER from game.js) — they are rendered in a
+// separate pass AFTER clearDepth(), so they never clip into walls.
+const VIEWMODEL_LAYER = 2;
+
 /**
- * AnimationManager
+ * AnimationManager v3 — Professional POV Viewmodel System
  *
- * Manages two subsystems:
- *   1. POV Arms   — two forearm/hand meshes parented to the camera,
- *                   always visible in the lower corners of the viewport.
- *   2. Character  — the external GLB doll model, shown from BREAK phase.
+ * Architecture:
+ *   Camera
+ *     └─ shoulderPivot (camera-space, sits 15cm below & 10cm behind camera centre)
+ *          ├─ rightShoulderGroup  (Layer 2 — world shoulder position)
+ *          │    └─ upperArm  ──► elbow ──► forearm ──► wrist ──► hand ──► fingers[]
+ *          └─ leftShoulderGroup   (mirror)
  *
- * ── POV Arm Coordinate System ───────────────────────────────────────────────
- *
- *   Camera space:  +X = right,  +Y = up,  -Z = into scene (forward)
- *
- *   Each arm ROOT group is positioned in camera-space at the lower corners:
- *     Right arm root: (+0.38, -0.30, -0.60)
- *     Left  arm root: (-0.38, -0.30, -0.60)
- *
- *   The forearm geometry extends DOWNWARD from the root (local -Y direction).
- *   The hand box sits at the bottom of the forearm, just visible on screen.
- *
- *   Root rotation:
- *     rotation.x = +0.22  →  arm leans slightly forward (natural rest pose)
- *     rotation.z = ∓0.30  →  arm angles inward from the corner (realistic)
- *
- *   Why positive rotation.x = forward lean:
- *     The hand is at local (0, -h, 0). With Rx matrix, a point at (0,-h,0)
- *     maps to (0, -h·cos θ, -h·sin θ).  Increasing θ increases -Z component
- *     → hand moves INTO the scene (forward = toward candy). ✓
- *
- *   Reach animation: rotation.x goes from REST_X (0.22) → REACH_X (1.05)
- *   This swings the hand from hanging-down to pointing-forward. ✓
+ * Procedural IK (2-bone FABRIK):
+ *   On candy collection, the wrist (end-effector) is driven toward the candy's
+ *   world position. The elbow angle is solved mathematically using the law of cosines.
+ *   No external IK library required.
  */
 export class AnimationManager {
     constructor(camera, scene, loadingManager = null) {
-        this.camera = camera;
-        this.scene  = scene;
+        this.camera        = camera;
+        this.scene         = scene;
         this.loadingManager = loadingManager;
 
-        // POV arm groups (camera children)
-        this.leftArmRoot  = null;
-        this.rightArmRoot = null;
+        // Arm roots
+        this.rightArm = null;   // { shoulder, elbow, wrist, hand, fingers }
+        this.leftArm  = null;
 
-        // Character Model (GLTF)
-        this.characterModel = null;
-        this.characterMixer = null;
-        this.kneelAction    = null;
-        this.isKneeling     = false;
-        this.isReaching     = false;
+        // State
+        this.isReaching      = false;
+        this.bobTime         = 0;
+        this.smoothedSpeed   = 0;
+        this.lastCamPos      = null;
 
-        // ── Rest-pose constants ──────────────────────────────────────────────
-        // These define where the arms sit when idle.
-        // At FOV 75°, aspect ~1.94, z=-0.60 → frustum half-width ≈ 0.92 units.
-        // x=±0.38 puts each arm in the lower corner, well inside the frustum.
-        this.R = {
-            x:   0.44,    // push arms into the lower corners
-            y:  -0.36,    // lower — shows forearm, hides upper arm off-screen
-            z:  -0.55,    // slightly closer so arms appear larger
-            rx:  0.20,    // pitch: forward lean at rest
-            rzR: -0.35,   // right arm rolls inward
-            rzL:  0.35,   // left arm mirror
+        // Character model
+        this.characterModel  = null;
+        this.characterMixer  = null;
+        this.kneelAction     = null;
+        this.isKneeling      = false;
+
+        // Shoulder pivot — parent for both arms, sits below/behind the camera centre
+        // so arms appear to come from the player's shoulders, not their forehead.
+        this.shoulderPivot = new THREE.Group();
+        this.shoulderPivot.position.set(0, -0.18, 0.12); // 18 cm below, 12 cm behind eye
+        this.camera.add(this.shoulderPivot);
+
+        // Rest-pose constants (camera-local)
+        this.REST = {
+            // Horizontal offset from centre to shoulder
+            shoulderX : 0.36,
+            // Vertical position of shoulder below pivot
+            shoulderY : 0,
+            // Shoulder pitch — arms hang slightly forward
+            pitchRest : 1.15,   // ~66° — hands point toward lower screen corners
+            // Inward roll per side (±)
+            rollRight : -0.12,
+            rollLeft  :  0.12,
+            // Arm segment lengths (world units)
+            upperLen  : 0.30,
+            forearmLen: 0.28,
         };
 
-        this._createArms();
+        this._buildArms();
         this._loadCharacterModel();
     }
 
+    // ── Compatibility shims ──────────────────────────────────────────────────
+    get leftArmRoot()  { return this.leftArm?.shoulder  ?? null; }
+    get rightArmRoot() { return this.rightArm?.shoulder ?? null; }
+
     // ─────────────────────────────────────────────────────────────────────────
-    //  POV ARM BUILDER (Ball-Jointed Porcelain Doll)
+    //  ARM BUILDER
     // ─────────────────────────────────────────────────────────────────────────
 
-    _createArms() {
-        // High-quality organic skin material matching the character image
+    _buildArms() {
         this.porcelainMat = new THREE.MeshPhysicalMaterial({
-            color: 0xdfa98e,      // Warm peach/tan skin tone 
-            roughness: 0.6,       // Skin is matte/rough, not glassy
-            metalness: 0.0,
-            clearcoat: 0.1,       // Very subtle specular sweat/oil
-            clearcoatRoughness: 0.6,
-            emissive: new THREE.Color(0x3a1510), // Fake subsurface scattering warmth
-            emissiveIntensity: 0.2
+            color             : 0xdfa98e,
+            roughness         : 0.60,
+            metalness         : 0.00,
+            clearcoat         : 0.10,
+            clearcoatRoughness: 0.60,
+            emissive          : new THREE.Color(0x3a1510),
+            emissiveIntensity : 0.20,
         });
+        this.jointMat = new THREE.MeshStandardMaterial({ color: 0xcf9070, roughness: 0.8 });
 
-        // ── Camera-Space Positioning (SHOULDER PIVOT) ──
-        this.R = {
-            x:   0.38,    // Gerçekçi omuz genişliği
-            y:  -0.10,    // Boyun hizası (Kameranın hemen altı/arkası)
-            z:   0.20,    // Kameranın 20cm arkasında (Görüş alanından dışarıda başlar)
-            rx:  1.20,    // Kollar öne/aşağı doğru dinlenir (1.2 radyan = ~68 derece ileri)
-            rzR: -0.15,
-            rzL:  0.15,
-        };
-
-        this.rightArmRoot = this._buildArm( this.R.x, this.R.rzR, false);
-        this.leftArmRoot  = this._buildArm(-this.R.x, this.R.rzL, true);
-        this.camera.add(this.rightArmRoot);
-        this.camera.add(this.leftArmRoot);
+        this.rightArm = this._buildOneArm( this.REST.shoulderX, this.REST.rollRight, false);
+        this.leftArm  = this._buildOneArm(-this.REST.shoulderX, this.REST.rollLeft,  true );
     }
 
-    _buildArm(offsetX, rollZ, isLeft) {
-        const jointMat = new THREE.MeshStandardMaterial({ color: 0xdfa98e, roughness: 0.8 });
-        const S = 3.02;
+    _buildOneArm(offsetX, rollZ, isLeft) {
+        const R = this.REST;
+        const S = 3.0; // geometry scale factor
 
-        // ── SHOULDER PIVOT (ROOT) ──
-        // Bütün el/kol bu omuzdan pendulum gibi sarkaçlanır
+        // ── Shoulder group (pivot point) ─────────────────────────────────────
         const shoulder = new THREE.Group();
-        shoulder.position.set(offsetX, this.R.y, this.R.z);
-        shoulder.rotation.x = this.R.rx;
+        shoulder.position.set(offsetX, R.shoulderY, 0);
+        shoulder.rotation.x = R.pitchRest;
         shoulder.rotation.z = rollZ;
         shoulder.frustumCulled = false;
+        this._assignLayer(shoulder);
 
-        const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.05 * S, 16, 16), jointMat);
-        shoulder.add(shoulderJoint);
+        // Shoulder ball joint
+        const sJoint = new THREE.Mesh(
+            new THREE.SphereGeometry(0.05 * S, 12, 12),
+            this.jointMat
+        );
+        this._assignLayer(sJoint);
+        shoulder.add(sJoint);
 
-        // ── ARM LIMB (Pendulum String) ──
-        const armLimb = new THREE.Group();
-        
-        const forearmLen = 0.28 * S; // Orijinal mükemmel uzunluğa geri döndürüldü
-        const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04 * S, forearmLen, 4, 16), this.porcelainMat);
-        forearm.position.y = -(forearmLen/2 + 0.05 * S); 
-        forearm.frustumCulled = false;
-        
-        armLimb.add(forearm);
+        // ── Upper arm ────────────────────────────────────────────────────────
+        const upperArm = new THREE.Group();
+        upperArm.position.y = 0; // starts at shoulder origin
+        shoulder.add(upperArm);
 
-        // ── WRIST ──
+        const upperLen = R.upperLen;
+        const upperMesh = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.038 * S, upperLen, 4, 12),
+            this.porcelainMat
+        );
+        upperMesh.position.y = -(upperLen / 2);
+        upperMesh.frustumCulled = false;
+        this._assignLayer(upperMesh);
+        upperArm.add(upperMesh);
+
+        // ── Elbow ────────────────────────────────────────────────────────────
+        const elbow = new THREE.Group();
+        elbow.position.y = -upperLen; // bottom of upper arm
+        upperArm.add(elbow);
+
+        const eJoint = new THREE.Mesh(
+            new THREE.SphereGeometry(0.042 * S, 12, 12),
+            this.jointMat
+        );
+        this._assignLayer(eJoint);
+        elbow.add(eJoint);
+
+        // ── Forearm ──────────────────────────────────────────────────────────
+        const forearm = new THREE.Group();
+        forearm.position.y = 0; // starts at elbow origin
+        elbow.add(forearm);
+
+        const foreLen = R.forearmLen;
+        const foreMesh = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.034 * S, foreLen, 4, 12),
+            this.porcelainMat
+        );
+        foreMesh.position.y = -(foreLen / 2);
+        foreMesh.frustumCulled = false;
+        this._assignLayer(foreMesh);
+        forearm.add(foreMesh);
+
+        // ── Wrist ────────────────────────────────────────────────────────────
         const wrist = new THREE.Group();
-        wrist.position.y = -(forearmLen + 0.08 * S); // Kolun ucuna iliştirilir
-        const wristJoint = new THREE.Mesh(new THREE.SphereGeometry(0.035 * S, 16, 16), jointMat);
-        wrist.add(wristJoint);
+        wrist.position.y = -foreLen;
+        forearm.add(wrist);
 
-        // ── HAND ──
+        const wJoint = new THREE.Mesh(
+            new THREE.SphereGeometry(0.032 * S, 12, 12),
+            this.jointMat
+        );
+        this._assignLayer(wJoint);
+        wrist.add(wJoint);
+
+        // ── Hand + Fingers ───────────────────────────────────────────────────
         const hand = new THREE.Group();
-        
-        const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04 * S, 0.05 * S, 4, 16), this.porcelainMat);
-        palm.position.y = -0.055 * S;
-        palm.scale.set(1.1, 1, 0.5); 
+        hand.rotation.x = -0.08;
+        wrist.add(hand);
+
+        const palm = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.038 * S, 0.048 * S, 4, 12),
+            this.porcelainMat
+        );
+        palm.position.y = -0.048 * S;
+        palm.scale.set(1.1, 1, 0.55);
+        palm.frustumCulled = false;
+        this._assignLayer(palm);
         hand.add(palm);
 
-        const createFinger = (radius, length, xOff, yOff, rotZ, rotX) => {
-            const fGrp = new THREE.Group();
-            fGrp.position.set(xOff, yOff, 0.005 * S);
-            fGrp.rotation.set(rotX, 0, rotZ);
-            const knuckle = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.2, 16, 16), this.porcelainMat);
-            fGrp.add(knuckle);
-            const fMesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 8), this.porcelainMat);
-            fMesh.position.y = -(length / 2 + radius * 0.8); 
-            fGrp.add(fMesh);
-            return fGrp;
-        };
-
-        const fingers = new THREE.Group();
-        const fBase = -0.088 * S; 
-
-        const idx = createFinger(0.009 * S, 0.06 * S, (isLeft ?  0.022 : -0.022) * S,  fBase, isLeft ? -0.08 :  0.08, 0.05);
-        const mid = createFinger(0.010 * S, 0.07 * S, 0,                               fBase - 0.005 * S, 0, 0.02);
-        const rng = createFinger(0.008 * S, 0.05 * S, (isLeft ? -0.020 :  0.020) * S,  fBase, isLeft ?  0.10 : -0.10, 0.08);
-        const thm = createFinger(0.012 * S, 0.045 * S, (isLeft ?  0.038 : -0.038) * S, -0.045 * S, isLeft ?  0.60 : -0.60, -0.30);
-        
-        fingers.add(idx, mid, rng, thm);
-        fingers.rotation.x = -0.15; 
+        const fingers = this._buildFingers(S, isLeft);
         hand.add(fingers);
-        
-        hand.rotation.x = -0.1; 
-        
-        wrist.add(hand);
-        armLimb.add(wrist);
-        shoulder.add(armLimb);
 
-        shoulder.userData.shoulder= shoulder;
-        shoulder.userData.wrist   = wrist;
-        shoulder.userData.hand    = hand;
-        shoulder.userData.fingers = fingers;
+        // Store hierarchy references
+        const armData = { shoulder, upperArm, elbow, forearm, wrist, hand, fingers };
 
-        return shoulder;
+        // userData for backward-compat with reachOut
+        shoulder.userData = armData;
+
+        this.shoulderPivot.add(shoulder);
+        return armData;
     }
 
-    // Compatibility getters for external callers (showCharacter, etc.)
-    get leftArm()  { return this.leftArmRoot; }
-    get rightArm() { return this.rightArmRoot; }
+    _buildFingers(S, isLeft) {
+        const group = new THREE.Group();
+        const fBase = -0.088 * S;
+
+        const mk = (radius, length, xOff, yOff, rz, rx) => {
+            const g = new THREE.Group();
+            g.position.set(xOff, yOff, 0.005 * S);
+            g.rotation.set(rx, 0, rz);
+            const k = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.2, 10, 10), this.porcelainMat);
+            this._assignLayer(k);
+            g.add(k);
+            const m = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 8), this.porcelainMat);
+            m.position.y = -(length / 2 + radius * 0.8);
+            this._assignLayer(m);
+            g.add(m);
+            return g;
+        };
+
+        const idx = mk(0.009*S, 0.058*S, (isLeft?  0.022:-0.022)*S, fBase,          isLeft?-0.08: 0.08,  0.05);
+        const mid = mk(0.010*S, 0.068*S,  0,                          fBase-0.005*S,  0,                   0.02);
+        const rng = mk(0.008*S, 0.050*S, (isLeft? -0.020: 0.020)*S,  fBase,          isLeft? 0.10:-0.10,  0.08);
+        const thm = mk(0.012*S, 0.045*S, (isLeft?  0.038:-0.038)*S, -0.045*S,        isLeft? 0.60:-0.60, -0.30);
+
+        group.add(idx, mid, rng, thm);
+        group.rotation.x = -0.15;
+        return group;
+    }
+
+    /** Set a mesh (and all descendants) to VIEWMODEL_LAYER */
+    _assignLayer(obj) {
+        obj.layers.set(VIEWMODEL_LAYER);
+        obj.traverse(child => child.layers.set(VIEWMODEL_LAYER));
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  GLB CHARACTER MODEL
+    //  CHARACTER MODEL
     // ─────────────────────────────────────────────────────────────────────────
 
     _loadCharacterModel() {
@@ -194,18 +243,15 @@ export class AnimationManager {
                 this.characterModel.position.set(-22.5, 0, -22.5);
                 this.scene.add(this.characterModel);
 
-                const TEX_SLOTS = ['map','normalMap','roughnessMap','metalnessMap','emissiveMap','aoMap'];
-                this.characterModel.traverse((node) => {
+                const TEX = ['map','normalMap','roughnessMap','metalnessMap','emissiveMap','aoMap'];
+                this.characterModel.traverse(node => {
                     if (!node.isMesh) return;
                     node.castShadow    = false;
                     node.receiveShadow = false;
                     const mats = Array.isArray(node.material) ? node.material : [node.material];
                     mats.forEach(mat => {
                         if (!mat) return;
-                        TEX_SLOTS.forEach(slot => {
-                            if (mat[slot]) mat[slot].needsUpdate = false;
-                        });
-                        // Removed dynamic map application, retaining the hand-crafted skin texture.
+                        TEX.forEach(slot => { if (mat[slot]) mat[slot].needsUpdate = false; });
                     });
                 });
 
@@ -216,14 +262,14 @@ export class AnimationManager {
                               || gltf.animations[0];
                     if (clip) {
                         this.kneelAction = this.characterMixer.clipAction(clip);
-                        this.kneelAction.loop             = THREE.LoopOnce;
+                        this.kneelAction.loop              = THREE.LoopOnce;
                         this.kneelAction.clampWhenFinished = true;
                     }
                 }
                 console.log('AnimationManager: GLB loaded —', gltf.animations.length, 'clips');
             },
             undefined,
-            (err) => console.error('AnimationManager: GLB load failed —', err)
+            err => console.error('AnimationManager: GLB load failed —', err)
         );
     }
 
@@ -236,10 +282,9 @@ export class AnimationManager {
             this.characterModel.position.copy(playerPosition);
             this.characterModel.position.y = 0;
             this.characterModel.visible    = true;
-            // Hide POV arms; camera transitions to top-down
-            if (this.leftArmRoot)  this.leftArmRoot.visible  = false;
-            if (this.rightArmRoot) this.rightArmRoot.visible  = false;
         }
+        if (this.rightArm) this.rightArm.shoulder.visible = false;
+        if (this.leftArm)  this.leftArm.shoulder.visible  = false;
     }
 
     triggerKneel() {
@@ -255,30 +300,31 @@ export class AnimationManager {
     _proceduralKneel() {
         if (!this.characterModel) return;
         const targets = [];
-        this.characterModel.traverse((node) => {
+        this.characterModel.traverse(node => {
             if (!node.isBone) return;
             const n = node.name.toLowerCase();
-            if (n.includes('upleg') || n.includes('thigh') || n.includes('upperleg') ||
-                n.includes('lowleg') || n.includes('calf')  || n.includes('lowerleg') || n.includes('shin')) {
+            if (n.includes('upleg')||n.includes('thigh')||n.includes('upperleg')||
+                n.includes('lowleg')||n.includes('calf') ||n.includes('lowerleg')||n.includes('shin'))
                 targets.push(node);
-            }
         });
         if (!targets.length) {
-            this._tweenY(this.characterModel, this.characterModel.position.y, this.characterModel.position.y - 0.8, 1500);
+            this._tweenY(this.characterModel, this.characterModel.position.y,
+                         this.characterModel.position.y - 0.8, 1500);
             return;
         }
         targets.forEach(bone => {
-            const isUpper = bone.name.toLowerCase().includes('up') || bone.name.toLowerCase().includes('thigh');
-            this._tweenBoneRotX(bone, 0, isUpper ? Math.PI / 3 : -Math.PI / 2.5, 1500);
+            const isUpper = bone.name.toLowerCase().includes('up') ||
+                            bone.name.toLowerCase().includes('thigh');
+            this._tweenBoneRotX(bone, 0, isUpper ? Math.PI/3 : -Math.PI/2.5, 1500);
         });
     }
 
     _tweenBoneRotX(bone, from, to, duration) {
         const start = performance.now();
         const go = () => {
-            const p    = Math.min((performance.now() - start) / duration, 1);
-            const ease = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p;
-            bone.rotation.x = from + (to - from) * ease;
+            const p    = Math.min((performance.now()-start)/duration, 1);
+            const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
+            bone.rotation.x = from + (to-from)*ease;
             if (p < 1) requestAnimationFrame(go);
         };
         go();
@@ -287,141 +333,131 @@ export class AnimationManager {
     _tweenY(obj, from, to, duration) {
         const start = performance.now();
         const go = () => {
-            const p    = Math.min((performance.now() - start) / duration, 1);
-            const ease = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p;
-            obj.position.y = from + (to - from) * ease;
+            const p    = Math.min((performance.now()-start)/duration, 1);
+            const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
+            obj.position.y = from + (to-from)*ease;
             if (p < 1) requestAnimationFrame(go);
         };
         go();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  REACH ANIMATION  (candy collection — right arm only, POV)
+    //  REACH / IK ANIMATION
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Procedural 2-bone IK reach.
+     * @param {THREE.Vector3} targetWorldPos  World-space position of the candy.
+     */
     reachOut(targetWorldPos) {
         if (this.isReaching) return;
         this.isReaching = true;
 
-        const arm = this.rightArmRoot;  // This is the SHOULDER
+        const arm = this.rightArm;
         if (!arm) { this.isReaching = false; return; }
 
-        const wrist    = arm.userData.wrist;
-        const fingers  = arm.userData.fingers;
+        const { shoulder, elbow, wrist, hand, fingers } = arm;
+        const R  = this.REST;
 
-        // Orijinal İstinat Açıları
-        const REST_RX  = this.R.rx;
-        const REST_RY  = 0;
-        const REST_Z   = this.R.z;
+        // ── Snapshot rest rotations ──────────────────────────────────────────
+        const restShoulderRX = shoulder.rotation.x;
+        const restShoulderRZ = shoulder.rotation.z;
+        const restElbowRX    = elbow.rotation.x;
 
-        // PENDULUM SARKINCI (Hedef Değerler)
-        // Omuzdaki "x" rotasyonu BÜYÜYEREK kolu ileri fırlatır! (+0.6 rad)
-        const REACH_RX = REST_RX + 0.60; 
-        const REACH_RY = 0.15; // Hedefe dönme
-        const REACH_Z  = REST_Z - 0.15; // Minik itiş
-        
-        const startWristRX = wrist.rotation.x;
-        // Sahte Dirsek/Bilek Bükülmesi: Uzanırken bilek havaya kalkar ve eli ileri gösterir
-        const REACH_WRIST_RX = -0.5; 
+        // ── Compute IK target in shoulder-local space ─────────────────────────
+        // We convert the candy world position into the shoulder group's local frame
+        // so our 2-bone IK math stays simple.
+        const shoulderWorld = new THREE.Vector3();
+        shoulder.getWorldPosition(shoulderWorld);
 
-        // ASİMETRİK ZAMANLAMA 1: EASE-OUT CUBIC (Tetikçi Fırlatışı ve Duraklama)
-        this._tween(260, (p) => {
-            const ease = 1 - Math.pow(1 - p, 3); // Hızlı atılır, hedefte kilitlenir
-            
-            // Kol sadece omuzdan devasa bir dönüş ile süzülür! (%80 rotasyon)
-            arm.rotation.x = REST_RX + (REACH_RX - REST_RX) * ease;
-            arm.rotation.y = REST_RY + (REACH_RY - REST_RY) * ease;
+        // Direction from shoulder to candy
+        const toTarget = new THREE.Vector3().subVectors(targetWorldPos, shoulderWorld);
+        const dist     = Math.min(toTarget.length(), R.upperLen + R.forearmLen - 0.01);
 
-            // Çok minik omuz itişi (%20 pozisyon desteği)
-            arm.position.z = REST_Z + (REACH_Z - REST_Z) * ease;
+        // 2-bone IK via law of cosines ─────────────────────────────────────────
+        // cos(elbowAngle) = (a²+b²-c²) / (2ab)
+        const a = R.upperLen;
+        const b = R.forearmLen;
+        const c = dist;
+        const cosElbow = THREE.MathUtils.clamp(
+            (a*a + b*b - c*c) / (2*a*b), -1, 1
+        );
+        const targetElbowRX = Math.PI - Math.acos(cosElbow); // 0 = fully extended
 
-            // Fake Kinematics: Bilek yukarı bükülerek ele şekil verir
-            wrist.rotation.x = startWristRX + (REACH_WRIST_RX - startWristRX) * ease;
-            wrist.rotation.z = -0.1 * ease;
+        // Shoulder pitch needed: angle to lift arm toward the candy
+        // toTarget in camera-local XZ plane
+        const camInv = new THREE.Matrix4().copy(this.camera.matrixWorld).invert();
+        const localTarget = toTarget.clone().applyMatrix4(camInv);
+        const targetPitch = Math.atan2(-localTarget.y, -localTarget.z);
+        const targetPitchClamped = THREE.MathUtils.clamp(targetPitch, R.pitchRest - 0.1, R.pitchRest + 0.80);
+        const targetYaw   = Math.atan2(localTarget.x, -localTarget.z) * 0.3; // subtle yaw
 
-            // Parmaklar açık
-            fingers.rotation.x = -0.15 + (0.8 * ease); 
-
+        // ── Phase 1: Reach out (Ease-out cubic, 260ms) ───────────────────────
+        this._tween(260, p => {
+            const e = 1 - Math.pow(1-p, 3);
+            shoulder.rotation.x = restShoulderRX + (targetPitchClamped - restShoulderRX) * e;
+            shoulder.rotation.y = targetYaw * e;
+            shoulder.rotation.z = restShoulderRZ;
+            elbow.rotation.x    = restElbowRX    + (targetElbowRX - restElbowRX) * e;
+            wrist.rotation.x    = -0.4 * e;
+            fingers.rotation.x  = -0.15 + 0.6 * e; // open slightly
         }, () => {
-            // ----- THE SNAP (Vahşi Kavrama) -----
-            // Omuz en uç noktadayken şekere değildiği an, sadece bilek ve parmak kodla ezilir!
-            fingers.rotation.x = -1.6; // Parmaklar kilitlenir
-            wrist.rotation.x   = 0.5;  // Bilek VAHŞİCE AŞAĞI kapanıp objeyi eziyor!
-            wrist.rotation.z   = 0.3;  // Burkarak kapma
-            
-            // Kamera Şiddeti
-            if (this.camera) {
-                const origFOV = this.camera.fov;
-                const origPitch = this.camera.rotation.x;
-                const origRoll  = this.camera.rotation.z;
+            // ── Snap: grasp ─────────────────────────────────────────────────
+            this._graspFingers(fingers, wrist, () => {
+                // ── Phase 2: Retract (ease-in cubic, 350ms) ─────────────────
+                setTimeout(() => {
+                    this._tween(350, p => {
+                        const e = Math.pow(p, 3);
+                        shoulder.rotation.x = targetPitchClamped + (restShoulderRX - targetPitchClamped) * e;
+                        shoulder.rotation.y = targetYaw * (1-e);
+                        elbow.rotation.x    = targetElbowRX    + (restElbowRX - targetElbowRX) * e;
+                        wrist.rotation.x    = -0.4 * (1-e);
+                        if (p > 0.6) {
+                            const rp = (p-0.6)/0.4;
+                            fingers.rotation.x = -1.5 + (-0.15 - -1.5) * rp;
+                        }
+                    }, () => { this.isReaching = false; });
+                }, 80);
+            });
+        });
 
-                this.camera.fov = origFOV - 8.0; 
-                this.camera.rotation.x = origPitch + 0.05; 
-                this.camera.updateProjectionMatrix();
+        // Camera micro-shake on snap
+        this._cameraSnap();
+    }
 
-                this._tween(200, (sp) => {
-                    const shakeEase = Math.pow(sp, 2); 
-                    const damp = 1 - sp;
-                    this.camera.fov = (origFOV - 8.0) + (8.0 * shakeEase);
-                    this.camera.rotation.x = (origPitch + 0.05) - (0.05 * shakeEase);
-                    this.camera.rotation.z = origRoll + (Math.sin(sp * 80) * 0.03 * damp) + ((Math.random()-0.5)*0.01*damp);
-                    this.camera.updateProjectionMatrix();
-                }, () => {
-                    this.camera.fov = origFOV;
-                    this.camera.rotation.x = origPitch;
-                    this.camera.rotation.z = origRoll;
-                    this.camera.updateProjectionMatrix();
-                });
-            }
-
-            setTimeout(() => {
-                this._retractArm(arm, arm.rotation.x, arm.rotation.y, arm.position.z, wrist.rotation.x);
-            }, 60);
+    /** Animate finger closure then call done() */
+    _graspFingers(fingers, wrist, done) {
+        this._tween(80, p => {
+            fingers.rotation.x = -0.15 + 0.6*p + (-1.5 - 0.45)*p; // open→close
+            wrist.rotation.x   = -0.4 + 0.5*p;
+            wrist.rotation.z   = 0.25*p;
+        }, () => {
+            fingers.rotation.x = -1.5;
+            wrist.rotation.x   =  0.1;
+            wrist.rotation.z   =  0.25;
+            done?.();
         });
     }
 
-    _retractArm(arm, fromRX, fromRY, fromZ, fromWristX) {
-        const wrist    = arm.userData.wrist;
-        const fingers  = arm.userData.fingers;
-
-        // ASİMETRİK ZAMANLAMA 2: EASE-IN CUBIC (Bumerang Söküş)
-        // Başta çok yavaş ve ağır çeker, sonra vücuda kamçı gibi aniden düşer.
-        this._tween(350, (p) => {
-            const ease = Math.pow(p, 3); // Ease-In
-            
-            // Omuz salınımı yeri döner
-            arm.rotation.x = fromRX + (this.R.rx - fromRX) * ease;
-            arm.rotation.y = fromRY + (0 - fromRY) * ease;
-            
-            arm.position.z = fromZ + (this.R.z - fromZ) * ease;
-
-            // Bileğin sökme anındaki kırık/ezik hali vücuda gelene kadar kalır, çarparak düzleşir
-            wrist.rotation.x = fromWristX + (0 - fromWristX) * ease;
-            wrist.rotation.z = 0.3 * (1 - ease);
-            
-            // Parmaklar yükü son ana kadar bırakmaz
-            if (p < 0.7) {
-                fingers.rotation.x = -1.6; 
-            } else {
-                const rp = (p - 0.7) / 0.3;
-                fingers.rotation.x = -1.6 + (-0.15 - -1.6) * rp;
-            }
+    _cameraSnap() {
+        if (!this.camera) return;
+        const origFOV   = this.camera.fov;
+        const origPitch = this.camera.rotation.x;
+        this.camera.fov = origFOV - 6;
+        this.camera.rotation.x = origPitch + 0.04;
+        this.camera.updateProjectionMatrix();
+        this._tween(220, sp => {
+            const damp = 1 - sp;
+            this.camera.fov        = (origFOV-6) + 6*sp;
+            this.camera.rotation.x = (origPitch+0.04) - 0.04*sp;
+            this.camera.rotation.z = (Math.sin(sp*90)*0.025 + (Math.random()-0.5)*0.008) * damp;
+            this.camera.updateProjectionMatrix();
         }, () => {
-            this.isReaching = false;
+            this.camera.fov        = origFOV;
+            this.camera.rotation.x = origPitch;
+            this.camera.rotation.z = 0;
+            this.camera.updateProjectionMatrix();
         });
-    }
-
-    /** Utility: run an eased animation. cb(ease) called each frame, done() on finish. */
-    _tween(duration, cb, done) {
-        const start = performance.now();
-        const step  = () => {
-            const p    = Math.min((performance.now() - start) / duration, 1);
-            const ease = p * (2 - p);   // ease-out
-            cb(ease);
-            if (p < 1) requestAnimationFrame(step);
-            else done?.();
-        };
-        step();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -429,65 +465,60 @@ export class AnimationManager {
     // ─────────────────────────────────────────────────────────────────────────
 
     update(time, delta) {
-        const R = this.R;
+        if (!delta) return;
 
-        // Dynamic Walking Bob logic based on actual camera movement
-        if (!this.lastCamPos) this.lastCamPos = new THREE.Vector3().copy(this.camera.position);
-        
-        const dist = Math.sqrt(
-            Math.pow(this.camera.position.x - this.lastCamPos.x, 2) + 
-            Math.pow(this.camera.position.z - this.lastCamPos.z, 2)
-        );
-        const speed = dist / delta;
+        // ── Speed estimation for walking bob ─────────────────────────────────
+        if (!this.lastCamPos) this.lastCamPos = this.camera.position.clone();
+        const moved = this.camera.position.distanceTo(this.lastCamPos);
         this.lastCamPos.copy(this.camera.position);
+        const rawSpeed = moved / delta;
+        this.smoothedSpeed = THREE.MathUtils.lerp(this.smoothedSpeed, Math.min(rawSpeed, 5), 10*delta);
+        if (this.smoothedSpeed > 0.1) this.bobTime += delta * 11.5;
 
-        if (!this.smoothedSpeed) this.smoothedSpeed = 0;
-        this.smoothedSpeed = THREE.MathUtils.lerp(this.smoothedSpeed, Math.min(speed, 5.0), 10 * delta);
+        // ── Procedural motions ───────────────────────────────────────────────
+        const R = this.REST;
 
-        if (!this.bobTime) this.bobTime = 0;
-        if (this.smoothedSpeed > 0.1) {
-            this.bobTime += delta * 12; // Human walking frequency (approx 1.9 Hz)
-        }
+        // Slow breathing
+        const breathY  =  Math.sin(time * 1.3)  * 0.016;
+        const breathX  =  Math.cos(time * 0.75) * 0.009;
 
-        const breatheX = Math.sin(time * 1.4) * 0.018;   // slow vertical breathing
-        const breatheY = Math.cos(time * 0.8) * 0.010;   // gentle side sway
+        // Walking figure-8 bob
+        const bobY     = Math.sin(this.bobTime)      * 0.042 * (this.smoothedSpeed / 5);
+        const bobX     = Math.cos(this.bobTime / 2)  * 0.038 * (this.smoothedSpeed / 5);
 
-        // Figure-8 walking motion
-        const walkBobY = Math.sin(this.bobTime) * 0.05 * (this.smoothedSpeed / 5.0);
-        const walkBobX = Math.cos(this.bobTime / 2) * 0.05 * (this.smoothedSpeed / 5.0);
+        const applyIdle = (arm, side) => {
+            if (!arm || arm.shoulder.visible === false) return;
+            const xMult = side === 'left' ? -1 : 1;
+            arm.shoulder.position.x = xMult * R.shoulderX + breathX * xMult + bobX * xMult;
+            arm.shoulder.position.y = R.shoulderY + breathY + bobY;
+            arm.shoulder.rotation.x = R.pitchRest  + breathY * 0.35;
+            arm.shoulder.rotation.z = (side === 'right' ? R.rollRight : R.rollLeft)
+                                      + bobX * 0.4 * xMult;
+        };
 
-        // Idle sway — only when not animating a reach
         if (!this.isReaching) {
-
-            // Right arm
-            if (this.rightArmRoot?.visible !== false) {
-                this.rightArmRoot.position.y   = R.y + breatheX + walkBobY;
-                this.rightArmRoot.position.x   = R.x - breatheY + walkBobX;
-                this.rightArmRoot.position.z   = R.z;
-                this.rightArmRoot.rotation.x   = R.rx + breatheX * 0.4;
-                this.rightArmRoot.rotation.z   = R.rzR + walkBobX * 0.5;
-            }
-
-            // Left arm
-            if (this.leftArmRoot?.visible !== false) {
-                this.leftArmRoot.position.y    = R.y + breatheX + walkBobY;
-                this.leftArmRoot.position.x    = -R.x + breatheY + walkBobX;
-                this.leftArmRoot.position.z    = R.z;
-                this.leftArmRoot.rotation.x    = R.rx + breatheX * 0.4;
-                this.leftArmRoot.rotation.z    = R.rzL + walkBobX * 0.5;
-            }
+            applyIdle(this.rightArm, 'right');
         } else {
-            // Apply breathing/bob to left arm even while right arm reaches
-            if (this.leftArmRoot?.visible !== false) {
-                this.leftArmRoot.position.y    = R.y + breatheX + walkBobY;
-                this.leftArmRoot.position.x    = -R.x + breatheY + walkBobX;
-                this.leftArmRoot.position.z    = R.z;
-            }
+            // While reaching: still apply bob to left arm only
         }
+        applyIdle(this.leftArm, 'left');
 
-        // Tick character AnimationMixer
-        if (this.characterMixer) {
-            this.characterMixer.update(delta);
-        }
+        // ── Character mixer ──────────────────────────────────────────────────
+        if (this.characterMixer) this.characterMixer.update(delta);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  UTILITY
+    // ─────────────────────────────────────────────────────────────────────────
+
+    _tween(duration, cb, done) {
+        const start = performance.now();
+        const step  = () => {
+            const p = Math.min((performance.now()-start)/duration, 1);
+            cb(p);
+            if (p < 1) requestAnimationFrame(step);
+            else done?.();
+        };
+        step();
     }
 }

@@ -23,6 +23,10 @@ import { EndScreen } from '../ui/endScreen.js';
 // ═══════════════════════════════════════════════════════════════════════════
 export const QA_MODE_ENABLED = true;
 
+// Viewmodel arms render on this dedicated layer so they are drawn AFTER
+// clearDepth() — they will never clip into walls regardless of geometry.
+export const VIEWMODEL_LAYER = 2;
+
 export class Game {
     constructor() {
         this.scene = null;
@@ -372,25 +376,41 @@ export class Game {
         }
     }
 
+
     render() {
+        if (!this.renderer || !this.scene || !this.camera) return;
+
+        const isPOV = this.stateMachine?.is?.('PLAY') || this.stateMachine?.is?.('PROVOKE');
+
         if (this.glitchSystem) {
             try {
-                // Route all rendering through the EffectComposer pipeline
-                this.glitchSystem.render();
+                if (isPOV) {
+                    // ── Pass 1: World (layer 0 only) ─────────────────────────────
+                    this.camera.layers.set(0);
+                    this.glitchSystem.render();
+
+                    // ── Pass 2: Viewmodel arms (layer 2, on top of everything) ───
+                    this.renderer.clearDepth();
+                    this.camera.layers.set(VIEWMODEL_LAYER);
+                    this.renderer.render(this.scene, this.camera);
+
+                    // Restore default layers
+                    this.camera.layers.enableAll();
+                } else {
+                    this.glitchSystem.render();
+                }
             } catch (e) {
-                // If the post-processing pipeline fails, fall back to direct render
-                // so the scene is never left black. Log once.
                 if (!this._glitchFallbackLogged) {
-                    console.warn('GlitchSystem render failed — falling back to direct render:', e);
+                    console.warn('GlitchSystem render failed — falling back:', e);
                     this._glitchFallbackLogged = true;
                 }
                 this.renderer.render(this.scene, this.camera);
             }
-        } else if (this.renderer && this.scene && this.camera) {
-            // Fallback: direct render if GlitchSystem isn't ready yet
+        } else {
             this.renderer.render(this.scene, this.camera);
         }
     }
+
 
     onWindowResize() {
         if (!this.camera) return;
