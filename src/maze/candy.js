@@ -15,8 +15,9 @@ import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 // ── Individual candy instance wrapper ──────────────────────────────────────
 export class CandyInstance {
-    constructor(mesh) {
+    constructor(mesh, id = null) {
         this.mesh  = mesh;
+        this.id    = id;
         this.baseY = mesh.position.y;
         this.rotationOffset = Math.random() * Math.PI * 2; // stagger rotation phase
     }
@@ -44,11 +45,11 @@ export class CandyInstance {
 
 // ── GLB loader + clone factory ─────────────────────────────────────────────
 export class CandySystem {
-    constructor(scene) {
+    constructor(scene, loadingManager = null) {
         this.scene       = scene;
         this._template   = null;   // the raw loaded GLTF scene object
         this._loaded     = false;
-        this._loader     = new GLTFLoader();
+        this._loader     = new GLTFLoader(loadingManager);
     }
 
     /**
@@ -137,7 +138,7 @@ export class CandySystem {
      * Clone the template and place it at (x, y, z).
      * Returns a CandyInstance.
      */
-    spawnAt(x, y, z) {
+    spawnAt(x, y, z, id = null) {
         if (!this._loaded) {
             console.warn('CandySystem.spawnAt() called before preload() resolved — skipping.');
             return null;
@@ -181,6 +182,6 @@ export class CandySystem {
         clone.position.set(x, y, z);
         this.scene.add(clone);
 
-        return new CandyInstance(clone);
+        return new CandyInstance(clone, id);
     }
 }

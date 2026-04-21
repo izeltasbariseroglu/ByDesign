@@ -33,9 +33,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  *   This swings the hand from hanging-down to pointing-forward. ✓
  */
 export class AnimationManager {
-    constructor(camera, scene) {
+    constructor(camera, scene, loadingManager = null) {
         this.camera = camera;
         this.scene  = scene;
+        this.loadingManager = loadingManager;
 
         // POV arm groups (camera children)
         this.leftArmRoot  = null;
@@ -183,7 +184,7 @@ export class AnimationManager {
     // ─────────────────────────────────────────────────────────────────────────
 
     _loadCharacterModel() {
-        const loader = new GLTFLoader();
+        const loader = new GLTFLoader(this.loadingManager);
         loader.load(
             '/assets/pastel dress doll 3d model.glb',
             (gltf) => {

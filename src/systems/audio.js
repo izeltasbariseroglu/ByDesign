@@ -23,24 +23,17 @@ export class AudioSystem {
         this._heartbeatInterval  = null;
         this._droneOscillators   = [];
 
-        // NOTE: AudioContext is NOT created here.
-        // Browser policy: AudioContext must be created after a user gesture.
-        // _init() is called lazily from resume() on the first click.
-        console.log('AudioSystem: Registered (lazy init — waiting for user gesture).');
-    }
+        // Phase 2: Spatial Audio & Feedback
+        this.candyPanners        = new Map(); 
 
-    // ─── Init ────────────────────────────────────────────────────────────────
-    _init() {
+        // NOTE: AudioContext can be created immediately (it will start suspended).
         try {
-            this.ctx          = new (window.AudioContext || window.webkitAudioContext)();
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
             this._masterGain  = this.ctx.createGain();
             this._masterGain.gain.value = 1.0;
             this._masterGain.connect(this.ctx.destination);
-
-            // NOTE: Garden ambient pad (_buildGardenAmbient) and wind layer are
-            // intentionally disabled — they produced a 'computer fan' sound.
-            // Only heartbeat, footstep, candy pickup and collapse remain active.
             this._buildHeartbeat();
+            console.log(`AudioSystem: Initialized (state: ${this.ctx.state}).`);
         } catch (e) {
             console.warn('AudioSystem: Web Audio API not supported —', e);
         }
@@ -312,14 +305,9 @@ export class AudioSystem {
 
     // ─── Public API ──────────────────────────────────────────────────────────
 
-    /** Resume AudioContext — also performs lazy init on first call after user gesture */
+    /** Resume AudioContext */
     resume() {
-        // First call: spin up the audio graph now that we have a user gesture
-        if (!this.ctx) {
-            this._init();
-            console.log('AudioSystem: Lazy init complete — Web Audio API ready.');
-            return; // ctx is now RUNNING straight away (created inside user-gesture stack)
-        }
+        if (!this.ctx) return;
         if (this.ctx.state === 'suspended') {
             this.ctx.resume().then(() => console.log('AudioSystem: Context resumed.'));
         }
@@ -389,5 +377,111 @@ export class AudioSystem {
     /** 150s'de GlitchSystem.triggerCollapse() ile eş zamanlı çağrılır */
     triggerCollapse() {
         this._playCollapseBurst();
+    }
+
+    // ─── Phase 2: Spatial Audio & Specialist Feedback ───────────────────────
+
+    /**
+     * Her şeker (candy) için bir uzamsal ses kaynağı (PannerNode) oluşturur.
+     * Oyuncu yaklaştıkça sesin yönünü ve şiddetini duyar.
+     */
+    createCandyPanner(id, x, y, z) {
+        if (!this.ctx) return;
+
+        // 1. Panner Node (Spatialization)
+        const panner = this.ctx.createPanner();
+        panner.panningModel  = 'HRTF';
+        panner.distanceModel = 'inverse';
+        panner.refDistance   = 1.0;
+        panner.maxDistance   = 10.0;
+        panner.rolloffFactor = 1.5;
+        panner.positionX.value = x;
+        panner.positionY.value = y;
+        panner.positionZ.value = z;
+
+        // 2. Humming Oscillator (Shimmering effect)
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(220, this.ctx.currentTime); // A3 hum
+
+        // Subtle LFO for shimmering
+        const lfo     = this.ctx.createOscillator();
+        lfo.frequency.value = 4.0; 
+        const lfoGain = this.ctx.createGain();
+        lfoGain.gain.value = 2.0;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+
+        const gain = this.ctx.createGain();
+        gain.gain.value = 0.04; // Very subtle
+
+        osc.connect(gain);
+        gain.connect(panner);
+        panner.connect(this._masterGain);
+
+        osc.start();
+        lfo.start();
+
+        this.candyPanners.set(id, { osc, lfo, gain, panner });
+        console.log(`AudioSystem: Spatial panner created for candy [${id}] at (${x},${y},${z})`);
+    }
+
+    /** Şeker toplandığında ses kaynağını kapatır ve temizler */
+    stopCandyPanner(id) {
+        const nodes = this.candyPanners.get(id);
+        if (nodes) {
+            nodes.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+            setTimeout(() => {
+                nodes.osc.stop();
+                nodes.lfo.stop();
+                nodes.osc.disconnect();
+                nodes.lfo.disconnect();
+                nodes.gain.disconnect();
+                nodes.panner.disconnect();
+                this.candyPanners.delete(id);
+            }, 200);
+        }
+    }
+
+    /** Her karede kameranın konumuna göre dinleyiciyi (listener) günceller */
+    updateListener(camera) {
+        if (!this.ctx) return;
+        const listener = this.ctx.listener;
+        const pos = camera.position;
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const up  = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+
+        if (listener.positionX) {
+            listener.positionX.setTargetAtTime(pos.x, this.ctx.currentTime, 0.1);
+            listener.positionY.setTargetAtTime(pos.y, this.ctx.currentTime, 0.1);
+            listener.positionZ.setTargetAtTime(pos.z, this.ctx.currentTime, 0.1);
+            listener.forwardX.setTargetAtTime(dir.x, this.ctx.currentTime, 0.1);
+            listener.forwardY.setTargetAtTime(dir.y, this.ctx.currentTime, 0.1);
+            listener.forwardZ.setTargetAtTime(dir.z, this.ctx.currentTime, 0.1);
+            listener.upX.setTargetAtTime(up.x, this.ctx.currentTime, 0.1);
+            listener.upY.setTargetAtTime(up.y, this.ctx.currentTime, 0.1);
+            listener.upZ.setTargetAtTime(up.z, this.ctx.currentTime, 0.1);
+        } else {
+            // Fallback for older browsers
+            listener.setPosition(pos.x, pos.y, pos.z);
+            listener.setOrientation(dir.x, dir.y, dir.z, up.x, up.y, up.z);
+        }
+    }
+
+    /** Provoke mesajı belirdiğinde kısa bir glitch sesi çalar */
+    triggerProvokeSound() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        osc.type  = 'sawtooth';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(110, now + 0.1);
+        const env = this.ctx.createGain();
+        env.gain.setValueAtTime(0.15, now);
+        env.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        osc.connect(env);
+        env.connect(this._masterGain);
+        osc.start(now);
+        osc.stop(now + 0.1);
     }
 }

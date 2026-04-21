@@ -3,8 +3,9 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { CandySystem } from './candy.js';
 
 export class MazeGenerator {
-    constructor(scene) {
+    constructor(scene, loadingManager = null, audio = null) {
         this.scene = scene;
+        this.audio = audio;
         this.walls = [];
         this.wallBoundingBoxes = [];
         this.wallCenters = [];    // Parallel array: {x,z} centre of each wall (for distance culling)
@@ -14,7 +15,7 @@ export class MazeGenerator {
         this.candies  = [];       // Array of CandyInstance
 
         // CandySystem is async — spawning happens after preload()
-        this.candySystem = new CandySystem(scene);
+        this.candySystem = new CandySystem(scene, loadingManager);
 
         this.generate();
     }
@@ -219,12 +220,19 @@ export class MazeGenerator {
             [3, 15], [9, 14], [16, 18]  // right side
         ];
 
-        positions.forEach(([row, col]) => {
+        positions.forEach(([row, col], index) => {
             const x = (col - this.gridSize / 2) * this.cellSize;
             const z = (row - this.gridSize / 2) * this.cellSize;
+            const y = 0.8;
 
-            const instance = this.candySystem.spawnAt(x, 0.8, z);
-            if (instance) this.candies.push(instance);
+            const instance = this.candySystem.spawnAt(x, y, z, index);
+            if (instance) {
+                this.candies.push(instance);
+                // Create spatial audio hum for this candy
+                if (this.audio) {
+                    this.audio.createCandyPanner(index, x, y, z);
+                }
+            }
         });
 
         console.log(`MazeGenerator: ${this.candies.length} candy instances spawned.`);

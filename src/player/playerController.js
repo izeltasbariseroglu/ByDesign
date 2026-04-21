@@ -3,11 +3,12 @@ import { AnimationManager } from '../systems/animationManager.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export class PlayerController {
-    constructor(camera, input, maze, audio = null) {
+    constructor(camera, input, maze, audio = null, loadingManager = null) {
         this.camera = camera;
         this.input = input;
         this.maze = maze;
         this.audio = audio;
+        this.loadingManager = loadingManager;
         
         this.position = new THREE.Vector3(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon
         this.moveSpeed = 3.0; // %25 yavaşlatıldı (4.0 -> 3.0)
@@ -31,7 +32,7 @@ export class PlayerController {
 
     addToScene(scene) {
         this.scene = scene;
-        this.animationManager = new AnimationManager(this.camera, scene);
+        this.animationManager = new AnimationManager(this.camera, scene, this.loadingManager);
     }
 
     setupPointerLock() {

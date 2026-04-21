@@ -79,7 +79,7 @@ export class HUD {
         } else if (state === 'PROVOKE') {
             this.messageCenter.innerHTML = "WELCOME TO THE GARDEN";
             this.modeLabel.innerHTML = "STATUS: INITIALIZING";
-            this.instructions.innerHTML = "WASD TO MOVE";
+            this.instructions.innerHTML = "CLICK TO LOCK CAMERA | WASD TO MOVE";
             this.timerLabel.style.opacity = '1';
         } else if (state === 'PLAY') {
             this.messageCenter.innerHTML = "";
@@ -124,8 +124,13 @@ export class HUD {
         console.log('HUD: Break timer activated — centered and red');
     }
 
-    showProvokeMessage(text) {
+    showProvokeMessage(text, audio = null) {
         this.messageCenter.innerHTML = `<span class='glitch' style='color: #ff69b4; text-shadow: 0 0 15px pink;'>${text}</span>`;
+        
+        // Narrative Pacing: Trigger a subtle glitch sound to alert the player
+        if (audio) {
+            audio.triggerProvokeSound();
+        }
         
         // Remove message after 3 seconds
         setTimeout(() => {

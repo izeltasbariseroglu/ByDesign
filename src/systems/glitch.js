@@ -78,11 +78,12 @@ export class GlitchSystem {
         this.noisePass.uniforms['intensity'].value = 0.0;
         this.composer.addPass(this.noisePass);
 
-        // ── Pass 3: Chromatic aberration (RGB channel split) ─────────────────
+        // ── Pass 3: Chromatic aberration (Radial RGB channel split) ─────────
         this.chromaticPass = new ShaderPass({
             uniforms: {
                 tDiffuse: { value: null },
                 amount:   { value: 0.0  },
+                jitter:   { value: 0.0  }, // Phase 2: extra jitter for BREAK
             },
             vertexShader: /* glsl */`
                 varying vec2 vUv;
@@ -94,12 +95,27 @@ export class GlitchSystem {
             fragmentShader: /* glsl */`
                 uniform sampler2D tDiffuse;
                 uniform float amount;
+                uniform float jitter;
                 varying vec2 vUv;
+
                 void main() {
-                    vec2 offset = amount * vec2(1.0, 0.0);
+                    // Center-based radial offset
+                    vec2 dist = vUv - 0.5;
+                    float d = length(dist);
+                    
+                    // Radial amount increases towards corners
+                    float radialAmount = amount * (1.0 + d * 2.0);
+                    
+                    // Optional jitter (random shift)
+                    vec2 offset = radialAmount * dist;
+                    if (jitter > 0.0) {
+                        offset.x += (fract(sin(dot(vUv, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * jitter;
+                    }
+
                     vec4 cr = texture2D(tDiffuse, vUv + offset);
                     vec4 cg = texture2D(tDiffuse, vUv);
                     vec4 cb = texture2D(tDiffuse, vUv - offset);
+                    
                     gl_FragColor = vec4(cr.r, cg.g, cb.b, cg.a);
                 }
             `,
@@ -136,14 +152,16 @@ export class GlitchSystem {
 
             case 'PLAY':
                 this.noisePass.uniforms['intensity'].value      = 0.08;
-                this.chromaticPass.uniforms['amount'].value     = 0.0015;
+                this.chromaticPass.uniforms['amount'].value     = 0.003;
+                this.chromaticPass.uniforms['jitter'].value     = 0.0;
                 this.glitchPass.enabled  = false;
                 this.glitchPass.goWild   = false;
                 break;
 
             case 'BREAK':
                 this.noisePass.uniforms['intensity'].value      = 0.22;
-                this.chromaticPass.uniforms['amount'].value     = 0.008;
+                this.chromaticPass.uniforms['amount'].value     = 0.015;
+                this.chromaticPass.uniforms['jitter'].value     = 0.005;
                 this.glitchPass.enabled  = true;
                 this.glitchPass.goWild   = true;
                 break;
@@ -151,6 +169,7 @@ export class GlitchSystem {
             case 'END':
                 this.noisePass.uniforms['intensity'].value      = 0.16;
                 this.chromaticPass.uniforms['amount'].value     = 0.012;
+                this.chromaticPass.uniforms['jitter'].value     = 0.0;
                 this.glitchPass.enabled  = false;
                 this.glitchPass.goWild   = false;
                 break;

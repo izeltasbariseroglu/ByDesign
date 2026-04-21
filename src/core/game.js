@@ -119,22 +119,32 @@ export class Game {
 
         // 2. Systems Setup
         this.input = new InputManipulator();
-        this.maze = new MazeGenerator(this.scene);
+        
+        // ── Phase 2: Centralized Loading ────────────────────────────────────────
+        this.loadingManager = new THREE.LoadingManager();
+        this.loadingManager.onLoad = () => {
+            console.log('ByDesign: All assets loaded via LoadingManager.');
+            this._hideLoadingOverlay();
+        };
+        this.loadingManager.onError = (url) => {
+            console.error('ByDesign: Loading error on —', url);
+        };
+
+        this.maze = new MazeGenerator(this.scene, this.loadingManager, this.audio);
         this.cameraSystem = new CameraSystem(this.camera);
         this.glitchSystem = new GlitchSystem(this.renderer, this.scene, this.camera);
         this.glitchSystem.setPhase('LOCKED');
         this.audio = new AudioSystem();
 
-        this.player = new PlayerController(this.camera, this.input, this.maze, this.audio);
+        this.player = new PlayerController(this.camera, this.input, this.maze, this.audio, this.loadingManager);
         this.player.addToScene(this.scene);
 
-        // ── LoadingManager: block PROVOKE until all GLBs are fully downloaded ──
+        // ── Loading Sequence ──────────────────────────────────────────────────
         this._assetsReady = false;
         this._showLoadingOverlay();
+        
         this.maze.initCandies().then(() => {
-            console.log('ByDesign: Candy GLB ready — all 9 instances spawned.');
-            // Character GLB load is async too — wait for both via a small poll
-            this._waitForCharacterThenUnlock();
+            console.log('ByDesign: Candy system initialized.');
         });
 
         // 3. Wait for camera permission (click to start)
@@ -207,6 +217,15 @@ export class Game {
 
         const currentTotalTime = this.timer.update(delta);
         const timeString = this.timer.getFormattedTime();
+
+        // Phase 2: Spatial Audio Listener Update
+        if (this.audio) {
+            try {
+                this.audio.updateListener(this.camera);
+            } catch (e) {
+                console.warn("Audio listener update failed:", e);
+            }
+        }
 
         // 1. State Transitions — Phase 3 timeline: PROVOKE 0-10, PLAY 10-120, BREAK 120-150, END 150
         if (this.stateMachine.is("PROVOKE") && currentTotalTime >= 10) {
@@ -308,6 +327,9 @@ export class Game {
                 // 2. Delay the actual "collection" (mesh removal, sound, logic) by 250ms 
                 //    so it synchronizes perfectly with the hand reaching its target!
                 setTimeout(() => {
+                    // Stop spatial audio panner
+                    this.audio.stopCandyPanner(candy.id);
+
                     this.disposeHierarchy(mesh);
                     this.scene.remove(mesh);
                     
@@ -346,7 +368,7 @@ export class Game {
                 "IS THAT IT OVER THERE?"
             ];
             const msg = messages[Math.floor(Math.random() * messages.length)];
-            this.hud.showProvokeMessage(msg);
+            this.hud.showProvokeMessage(msg, this.audio);
         }
     }
 
@@ -435,35 +457,6 @@ export class Game {
         }
         this._assetsReady = true;
         console.log('ByDesign: All GLBs loaded — experience unlocked for click-to-start.');
-    }
-
-    /**
-     * After candy GLB resolves, poll until the character model is also loaded,
-     * then remove the loading overlay. Character GLB is loaded lazily inside
-     * AnimationManager — we check its reference every 200 ms.
-     */
-    _waitForCharacterThenUnlock() {
-        const maxWait  = 30000; // give up after 30 s (slow networks)
-        const interval = 200;
-        let elapsed    = 0;
-
-        const poll = () => {
-            const charReady = this.player?.animationManager?.characterModel !== null
-                           && this.player?.animationManager?.characterModel !== undefined;
-
-            if (charReady || elapsed >= maxWait) {
-                if (!charReady) {
-                    console.warn('ByDesign: Character GLB timed out — proceeding without it.');
-                }
-                this._hideLoadingOverlay();
-                return;
-            }
-
-            elapsed += interval;
-            setTimeout(poll, interval);
-        };
-
-        poll();
     }
 
     /** Helper: Recursively disposes geometries and materials to prevent memory leaks */
