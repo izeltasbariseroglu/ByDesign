@@ -1,10 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-// Arms live on Layer 2 (VIEWMODEL_LAYER from game.js) — they are rendered in a
-// separate pass AFTER clearDepth(), so they never clip into walls.
-const VIEWMODEL_LAYER = 2;
-
 /**
  * AnimationManager v3 — Professional POV Viewmodel System
  *
@@ -42,27 +38,26 @@ export class AnimationManager {
         this.kneelAction     = null;
         this.isKneeling      = false;
 
-        // Shoulder pivot — parent for both arms, sits below/behind the camera centre
-        // so arms appear to come from the player's shoulders, not their forehead.
+        // Shoulder pivot: camera-space. Three.js'de -Z = ileri (ekrana doğru).
+        // Pivot, göz seviyesinin 15cm altında ve 10cm önünde (ekrana doğru) durur.
         this.shoulderPivot = new THREE.Group();
-        this.shoulderPivot.position.set(0, -0.18, 0.12); // 18 cm below, 12 cm behind eye
+        this.shoulderPivot.position.set(0, -0.15, -0.10);
         this.camera.add(this.shoulderPivot);
+
 
         // Rest-pose constants (camera-local)
         this.REST = {
-            // Horizontal offset from centre to shoulder
-            shoulderX : 0.36,
-            // Vertical position of shoulder below pivot
-            shoulderY : 0,
-            // Shoulder pitch — arms hang slightly forward
-            pitchRest : 1.15,   // ~66° — hands point toward lower screen corners
-            // Inward roll per side (±)
-            rollRight : -0.12,
-            rollLeft  :  0.12,
-            // Arm segment lengths (world units)
-            upperLen  : 0.30,
-            forearmLen: 0.28,
+            shoulderX  : 0.32,   // omuz genişliği — ekranın köşelerine doğru
+            shoulderY  : 0,
+            // pitchRest: omuz grubunun x rotasyonu.
+            // 1.15 rad (~66°) → el ekranın alt köşesinde görünür.
+            pitchRest  : 1.10,
+            rollRight  : -0.14,
+            rollLeft   :  0.14,
+            upperLen   : 0.28,
+            forearmLen : 0.26,
         };
+
 
         this._buildArms();
         this._loadCharacterModel();
@@ -222,11 +217,12 @@ export class AnimationManager {
         return group;
     }
 
-    /** Set a mesh (and all descendants) to VIEWMODEL_LAYER */
+    /** Ensure an object is never frustum-culled (arms may partially extend behind camera) */
     _assignLayer(obj) {
-        obj.layers.set(VIEWMODEL_LAYER);
-        obj.traverse(child => child.layers.set(VIEWMODEL_LAYER));
+        obj.frustumCulled = false;
+        obj.traverse(child => { child.frustumCulled = false; });
     }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     //  CHARACTER MODEL

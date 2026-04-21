@@ -380,25 +380,9 @@ export class Game {
     render() {
         if (!this.renderer || !this.scene || !this.camera) return;
 
-        const isPOV = this.stateMachine?.is?.('PLAY') || this.stateMachine?.is?.('PROVOKE');
-
         if (this.glitchSystem) {
             try {
-                if (isPOV) {
-                    // ── Pass 1: World (layer 0 only) ─────────────────────────────
-                    this.camera.layers.set(0);
-                    this.glitchSystem.render();
-
-                    // ── Pass 2: Viewmodel arms (layer 2, on top of everything) ───
-                    this.renderer.clearDepth();
-                    this.camera.layers.set(VIEWMODEL_LAYER);
-                    this.renderer.render(this.scene, this.camera);
-
-                    // Restore default layers
-                    this.camera.layers.enableAll();
-                } else {
-                    this.glitchSystem.render();
-                }
+                this.glitchSystem.render();
             } catch (e) {
                 if (!this._glitchFallbackLogged) {
                     console.warn('GlitchSystem render failed — falling back:', e);
