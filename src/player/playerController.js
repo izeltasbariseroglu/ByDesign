@@ -11,7 +11,7 @@ export class PlayerController {
         this.audio = audio;
         this.loadingManager = loadingManager;
         
-        this.position = new THREE.Vector3(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon
+        this.position = new THREE.Vector3(-18.75, 1.7, -18.75); // Grid [1,1] in 17x17 dungeon
         this.moveSpeed = 3.0; // %25 yavaşlatıldı (4.0 -> 3.0)
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();

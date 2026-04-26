@@ -107,7 +107,7 @@ export class Game {
         this.scene.add(hemiLight);
         
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
-        this.camera.position.set(-22.5, 1.7, -22.5); // Grid [1,1] in 20x20 dungeon
+        this.camera.position.set(-18.75, 1.7, -18.75); // Grid [1,1] in 17x17 dungeon
         
         // AAA Standard: Independent Viewmodel Camera
         // 50 degree FOV prevents viewmodel stretching when main FOV is high
