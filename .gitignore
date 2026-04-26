@@ -9,5 +9,15 @@ dist
 _agents
 _agent
 *.log
-*.glb
-public/assets/
+
+# Asset Management
+# Exclude everything in public/assets by default to keep the repo lean
+public/assets/*
+
+# Explicitly allow ONLY the assets used in the project
+!public/assets/grass_texture.avif
+!public/assets/bush_texture.jpg
+!public/assets/sky_texture.jpg
+!public/assets/pastel dress doll 3d model.glb
+!public/assets/pastel striped candy 3d model.glb
+!public/assets/skin_texture.png
