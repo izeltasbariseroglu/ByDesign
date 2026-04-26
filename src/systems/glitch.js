@@ -159,11 +159,11 @@ export class GlitchSystem {
                 break;
 
             case 'BREAK':
-                this.noisePass.uniforms['intensity'].value      = 0.22;
-                this.chromaticPass.uniforms['amount'].value     = 0.015;
-                this.chromaticPass.uniforms['jitter'].value     = 0.005;
+                this.noisePass.uniforms['intensity'].value      = 0.15; // Lighter noise
+                this.chromaticPass.uniforms['amount'].value     = 0.01; // Lighter aberration
+                this.chromaticPass.uniforms['jitter'].value     = 0.003; // Less jitter
                 this.glitchPass.enabled  = true;
-                this.glitchPass.goWild   = true;
+                this.glitchPass.goWild   = false; // Slower, non-wild glitch
                 break;
 
             case 'END':

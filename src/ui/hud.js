@@ -104,10 +104,10 @@ export class HUD {
             this.timerLabel.style.color = `rgb(255, ${g}, ${g})`;
             this.timerLabel.style.textShadow = `0 0 ${blur}px rgb(255, ${g}, ${g})`;
             
-            // Son kısımlara doğru ekstra titreme/sapma ekle
+            // Son kısımlara doğru ekstra titreme/sapma ekle (Hafifletildi)
             if (progress > 0.5) {
-                const jitterX = (Math.random() - 0.5) * progress * 10;
-                const jitterY = (Math.random() - 0.5) * progress * 10;
+                const jitterX = (Math.random() - 0.5) * progress * 4; // 10'dan 4'e düşürüldü
+                const jitterY = (Math.random() - 0.5) * progress * 4;
                 this.timerLabel.style.transform = `translate(calc(-50% + ${jitterX}px), calc(-50% + ${jitterY}px))`;
             } else {
                 this.timerLabel.style.transform = 'translate(-50%, -50%)';
@@ -131,7 +131,7 @@ export class HUD {
         t.style.top = '50%';
         t.style.left = '50%';
         t.style.transform = 'translate(-50%, -50%)';
-        t.style.fontSize = '6rem';
+        t.style.fontSize = '8rem'; // Boyut 6rem'den 8rem'e çıkarıldı
         t.style.fontWeight = 'bold';
         t.style.letterSpacing = '8px';
         t.style.zIndex = '500';
