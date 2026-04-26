@@ -8,12 +8,13 @@ export class Timer {
     }
 
     update(delta) {
-        if (this.elapsedTime < this.totalDuration) {
-            this.elapsedTime += delta;
-        }
-
         if (this.elapsedTime >= 120) {
             this.isGlitched = true;
+            delta *= 3; // 3x speedup for the last 30 seconds
+        }
+
+        if (this.elapsedTime < this.totalDuration) {
+            this.elapsedTime += delta;
         }
 
         return this.elapsedTime;
@@ -21,24 +22,19 @@ export class Timer {
 
     getFormattedTime() {
         // 0-10:   PROVOKE phase
-        // 10-120: PLAY phase   → countdown shows 2:00 → 0:00 (120 real secs mapped to fake 120s)
-        // 120+:   BREAK phase  → glitched clock
+        // 10-120: PLAY phase   → countdown 2:20 → 0:30
+        // 120+:   BREAK phase  → countdown 0:30 → 0:00 (sped up 3x internally)
         
         if (this.elapsedTime < 10) return "PROVOKING...";
 
-        if (this.elapsedTime < 120) {
-            // Map 10-120 seconds (110s range) to countdown 2:00 → 0:00
-            const progress = (this.elapsedTime - 10) / 110;
-            const fakeTotalSeconds = Math.max(0, Math.floor(120 - progress * 120));
-            
-            const mins = Math.floor(fakeTotalSeconds / 60);
-            const secs = fakeTotalSeconds % 60;
+        if (this.elapsedTime < 150) {
+            const remaining = Math.max(0, Math.floor(150 - this.elapsedTime));
+            const mins = Math.floor(remaining / 60);
+            const secs = remaining % 60;
             return `${mins}:${secs.toString().padStart(2, '0')}`;
         }
 
-        // BREAK phase: Aggressive glitched timestamp
-        const ms = (Date.now() % 10000).toString().padStart(4, '0');
-        return `ERR::${ms}`;
+        return "0:00";
     }
 
     isPhase(phase) {

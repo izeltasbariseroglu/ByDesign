@@ -55,11 +55,19 @@ export class PlayerController {
     // Called externally (from game.js) after game starts so it doesn't
     // compete with camera permission click listener
     enablePointerLock() {
+        this.pointerLockAllowed = true;
         document.addEventListener('click', () => {
-            if (!this.isPointerLocked) {
+            if (!this.isPointerLocked && this.pointerLockAllowed) {
                 document.body.requestPointerLock();
             }
         });
+    }
+
+    disablePointerLock() {
+        this.pointerLockAllowed = false;
+        if (this.isPointerLocked) {
+            document.exitPointerLock();
+        }
     }
 
     update(delta, isPOV = true) {

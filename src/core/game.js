@@ -249,6 +249,7 @@ export class Game {
             this.exitTriggered = true;
             this.stateMachine.changeState("BREAK");
             this.input.setMode("BREAK");
+            this.player.disablePointerLock(); // MOUSE KONTROLÜ İPTAL EDİLDİ
             this.cameraSystem.startTopDownTransition(this.player.position);
             this.glitchSystem.setPhase('BREAK');
             this.audio.setPhase('BREAK');
@@ -275,14 +276,14 @@ export class Game {
             // 3. Character kneels
             this.player.triggerKneel();
 
-            // 4. Final photo + END state + locked screen (after 1.5s so kneel plays first)
+            // 4. Final photo + END state + locked screen (after 5.0s so kneel plays and glitch persists)
             setTimeout(() => {
                 this.capture.takeFinalPhoto();
                 this.stateMachine.changeState("END");
                 this.glitchSystem.setPhase('END');
                 this.audio.setPhase('END');
                 this.endScreen.show(this.capture.initialPhoto, this.capture.finalPhoto);
-            }, 1500);
+            }, 5000);
         }
 
         // 2. Subsystem Updates
@@ -302,7 +303,7 @@ export class Game {
         // Exit Trigger Check removed as per Phase 1 cleanup
         // (Logic will be replaced by Candy Loop in Phase 2)
 
-        this.hud.update(this.stateMachine.currentState, timeString, this.player.position, this.maze.getMazeInfo(), this.collectedCandies);
+        this.hud.update(this.stateMachine.currentState, timeString, this.player.position, this.maze.getMazeInfo(), this.collectedCandies, currentTotalTime);
         
         if (this.isProvoking) {
             this.updateProvokeEngine(currentTotalTime);

@@ -64,7 +64,7 @@ export class HUD {
         this.ctx = null;
     }
 
-    update(state, timeString, playerPosition, mazeInfo, candyCount = 0) {
+    update(state, timeString, playerPosition, mazeInfo, candyCount = 0, currentTotalTime = 0) {
         if (this.lastState !== state) {
             console.log(`HUD: State changed to [${state}]`);
             this.lastState = state;
@@ -94,8 +94,25 @@ export class HUD {
             this.modeLabel.style.color = "#ff4444";
             this.modeLabel.style.borderColor = "#ff4444";
             this.modeLabel.classList.add('glitch');
-            this.timerLabel.classList.add('glitch');
             this.instructions.innerHTML = "SYSTEM OVERRIDE DETECTED";
+
+            // Kademeli Geçiş (Gradual Effect) - 120'den 150'ye giderken yoğunluğu artırıyoruz
+            const progress = Math.min(1, Math.max(0, (currentTotalTime - 120) / 30));
+            const g = Math.floor(255 * (1 - progress)); // 255 -> 0 (White to Red)
+            const blur = 10 + progress * 30; // 10 -> 40
+            
+            this.timerLabel.style.color = `rgb(255, ${g}, ${g})`;
+            this.timerLabel.style.textShadow = `0 0 ${blur}px rgb(255, ${g}, ${g})`;
+            
+            // Son kısımlara doğru ekstra titreme/sapma ekle
+            if (progress > 0.5) {
+                const jitterX = (Math.random() - 0.5) * progress * 10;
+                const jitterY = (Math.random() - 0.5) * progress * 10;
+                this.timerLabel.style.transform = `translate(calc(-50% + ${jitterX}px), calc(-50% + ${jitterY}px))`;
+            } else {
+                this.timerLabel.style.transform = 'translate(-50%, -50%)';
+            }
+
         } else if (state === 'END') {
             this.messageCenter.innerHTML = "<span class='glitch'>YOUR ESCAPE WAS AN ILLUSION.</span><br><br><span style='font-size: 1rem;'>SESSION TERMINATED</span>";
             this.modeLabel.innerHTML = "STATUS: TERMINATED";
@@ -108,7 +125,7 @@ export class HUD {
         // Minimap draw logic removed as per Phase 1 cleanup
     }
 
-    /** Called at BREAK start (120s): slams the timer to center, makes it red + aggressive */
+    /** Called at BREAK start (120s): slams the timer to center, but styling starts normal */
     activateBreakTimer() {
         const t = this.timerLabel;
         t.style.top = '50%';
@@ -116,12 +133,16 @@ export class HUD {
         t.style.transform = 'translate(-50%, -50%)';
         t.style.fontSize = '6rem';
         t.style.fontWeight = 'bold';
-        t.style.color = '#ff0000';
-        t.style.textShadow = '0 0 30px #ff0000, 0 0 60px #880000';
-        t.style.animation = 'break-pulse 0.4s infinite alternate';
         t.style.letterSpacing = '8px';
         t.style.zIndex = '500';
-        console.log('HUD: Break timer activated — centered and red');
+        
+        // Initial clean state (gradual corruption handled in update())
+        t.style.color = 'rgb(255, 255, 255)';
+        t.style.textShadow = '0 0 10px rgba(255, 255, 255, 0.5)';
+        t.style.animation = 'none';
+        t.classList.remove('glitch'); // Prevent default glitch CSS if any
+        
+        console.log('HUD: Break timer activated — centered, awaiting gradual corruption');
     }
 
     showProvokeMessage(text, audio = null) {

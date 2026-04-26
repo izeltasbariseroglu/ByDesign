@@ -36,62 +36,19 @@ export class InputManipulator {
             if (this.mode === 'PLAY') {
                 this.keys[action] = isDown;
             } else {
-                // In BREAK mode, we manipulate the input before it reaches this.keys
-                this.applyManipulation(action, isDown);
+                // In BREAK mode, control is taken from the player
+                // Do not update this.keys, just ignore
             }
         }
     }
 
-    applyManipulation(action, isDown) {
-        const rand = Math.random();
-
-        // 1. Ignore / Drop (30%)
-        if (rand < 0.3) {
-            console.log(`Manipulation: DROP ${action}`);
-            return;
-        }
-
-        // Use a local variable — never mutate the function parameter (strict-mode safe)
-        let mappedAction = action;
-
-        // 2. Invert (10%)
-        if (rand < 0.4) {
-            const invertedMap = {
-                'forward':  'backward',
-                'backward': 'forward',
-                'left':     'right',
-                'right':    'left'
-            };
-            mappedAction = invertedMap[action];
-            console.log(`Manipulation: INVERT -> ${mappedAction}`);
-            this.keys[mappedAction] = isDown;
-            return; // Invert is its own branch — don't fall through
-        }
-
-        // 3. Delay (10%)
-        if (rand < 0.5) {
-            console.log(`Manipulation: DELAY ${mappedAction}`);
-            setTimeout(() => {
-                this.keys[mappedAction] = isDown;
-            }, this.delayAmount);
-            return;
-        }
-
-        // Default: apply directly
-        this.keys[mappedAction] = isDown;
-    }
+    // Removed applyManipulation since we completely disable input in BREAK mode
 
     getInputs() {
-        let finalInputs = { ...this.keys };
-
-        // 4. Jitter (Dynamic during update)
-        if (this.mode === 'BREAK' && Math.random() < 0.1) {
-            const jitterDir = Math.random() < 0.5 ? 'left' : 'right';
-            finalInputs[jitterDir] = true;
-            // No console log here to not spam, it's a 'glitchy' feel
+        if (this.mode === 'BREAK') {
+            return { forward: false, backward: false, left: false, right: false };
         }
-
-        return finalInputs;
+        return { ...this.keys };
     }
 
     setMode(mode) {
