@@ -5,7 +5,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 export class PlayerController {
     constructor(camera, viewmodelCamera, input, maze, audio = null, loadingManager = null) {
         this.camera = camera;
-        this.viewmodelCamera = viewmodelCamera;
         this.input = input;
         this.maze = maze;
         this.audio = audio;
@@ -33,7 +32,7 @@ export class PlayerController {
 
     addToScene(scene) {
         this.scene = scene;
-        this.animationManager = new AnimationManager(this.camera, this.viewmodelCamera, scene, this.loadingManager);
+        this.animationManager = new AnimationManager(this.camera, null, scene, this.loadingManager);
     }
 
     setupPointerLock() {
@@ -140,7 +139,7 @@ export class PlayerController {
     }
 
     triggerCollectionEffect(targetWorldPos) {
-        if (this.animationManager) this.animationManager.reachOut(targetWorldPos);
+        // Hands removed per revision
     }
 
     revealCharacter() {

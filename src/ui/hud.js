@@ -160,4 +160,37 @@ export class HUD {
             }
         }, 3000);
     }
+
+    showTimedMessage(text, audio = null) {
+        const el = document.createElement('div');
+        el.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: Arial, sans-serif;
+            font-size: 2.5rem;
+            color: #ffffff;
+            text-shadow: 0 0 10px rgba(0,0,0,0.8), 2px 2px 4px rgba(0,0,0,0.8);
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: 8500;
+            text-align: center;
+            width: 100%;
+        `;
+        el.innerText = text;
+        this.container.appendChild(el);
+
+        if (audio) audio.triggerProvokeSound();
+
+        // Fade in
+        setTimeout(() => el.style.opacity = '1', 50);
+
+        // Keep for 5s (fade out takes 0.5s, so start fade out at 4.5s)
+        setTimeout(() => {
+            el.style.opacity = '0';
+            setTimeout(() => el.remove(), 500);
+        }, 4500);
+    }
 }

@@ -150,6 +150,8 @@ export class MazeGenerator {
                 this.walls.push(wall);
             });
 
+            this._addFlowers(greedySegments);
+
             console.log(`MazeGenerator: wall texture loaded — ${this.walls.length} wall segments built.`);
         }, undefined, (err) => {
             console.warn('MazeGenerator: wall texture failed, using solid color fallback.', err);
@@ -164,7 +166,80 @@ export class MazeGenerator {
                 this.scene.add(wall);
                 this.walls.push(wall);
             });
+            this._addFlowers(greedySegments);
         });
+    }
+
+    _addFlowers(segments) {
+        const maxFlowers = 2000;
+        const centerGeo = new THREE.SphereGeometry(0.03, 8, 8);
+        const centerMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        const centerInstanced = new THREE.InstancedMesh(centerGeo, centerMat, maxFlowers);
+        
+        const petalGeo = new THREE.SphereGeometry(0.045, 8, 8);
+        const petalMat = new THREE.MeshLambertMaterial({ color: 0xffb6c1 });
+        const petalInstanced = new THREE.InstancedMesh(petalGeo, petalMat, maxFlowers * 5);
+
+        const dummy = new THREE.Object3D();
+        const dummyPetal = new THREE.Object3D();
+        let fIdx = 0;
+        let pIdx = 0;
+
+        segments.forEach(({ x, z, w, d }) => {
+            const area = 2 * (w * 2 + d * 2); // Approximate surface area (sides)
+            const numFlowers = Math.floor(area * 0.6); // Density factor
+
+            for (let i = 0; i < numFlowers; i++) {
+                if (fIdx >= maxFlowers) break;
+
+                // Pick a random face (0: +x, 1: -x, 2: +z, 3: -z)
+                const face = Math.floor(Math.random() * 4);
+                let fx = x, fz = z, fy = 0.4 + Math.random() * 1.4; // Height 0.4 to 1.8
+                let normal = new THREE.Vector3();
+
+                if (face === 0) { fx += w/2 + 0.2; fz += (Math.random()-0.5)*d; normal.set(1,0,0); }
+                else if (face === 1) { fx -= w/2 + 0.2; fz += (Math.random()-0.5)*d; normal.set(-1,0,0); }
+                else if (face === 2) { fz += d/2 + 0.2; fx += (Math.random()-0.5)*w; normal.set(0,0,1); }
+                else { fz -= d/2 + 0.2; fx += (Math.random()-0.5)*w; normal.set(0,0,-1); }
+
+                // Set dummy base orientation
+                dummy.position.set(fx, fy, fz);
+                dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), normal);
+                
+                // Add random rotation on the wall surface
+                const baseRotZ = Math.random() * Math.PI * 2;
+                dummy.rotateZ(baseRotZ);
+
+                dummy.updateMatrix();
+                centerInstanced.setMatrixAt(fIdx, dummy.matrix);
+
+                for(let p=0; p<5; p++) {
+                    const angle = (p / 5) * Math.PI * 2;
+                    dummyPetal.position.set(fx, fy, fz);
+                    dummyPetal.quaternion.copy(dummy.quaternion);
+                    
+                    // offset petal relative to orientation
+                    dummyPetal.translateX(Math.cos(angle)*0.04);
+                    dummyPetal.translateY(Math.sin(angle)*0.04);
+                    dummyPetal.translateZ(-0.01);
+                    
+                    dummyPetal.updateMatrix();
+                    petalInstanced.setMatrixAt(pIdx, dummyPetal.matrix);
+                    pIdx++;
+                }
+                fIdx++;
+            }
+        });
+
+        centerInstanced.count = fIdx;
+        petalInstanced.count = pIdx;
+        
+        centerInstanced.instanceMatrix.needsUpdate = true;
+        petalInstanced.instanceMatrix.needsUpdate = true;
+
+        this.scene.add(centerInstanced);
+        this.scene.add(petalInstanced);
+        console.log(`MazeGenerator: Added ${fIdx} flowers.`);
     }
 
     // ── Private: greedy meshing algorithm ────────────────────────────────────

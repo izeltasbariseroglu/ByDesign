@@ -203,6 +203,28 @@ export class GlitchSystem {
         }, 500);
     }
 
+    triggerPeriodicGlitch() {
+        if (this.phase === 'BREAK' || this.phase === 'END') return; // Don't override finale
+        
+        console.log('GlitchSystem: Periodic 2-second glitch triggered.');
+        this.glitchPass.enabled = true;
+        this.glitchPass.goWild = false;
+        
+        const prevNoise = this.noisePass.uniforms['intensity'].value;
+        const prevCA = this.chromaticPass.uniforms['amount'].value;
+        
+        this.noisePass.uniforms['intensity'].value = 0.15;
+        this.chromaticPass.uniforms['amount'].value = 0.01;
+
+        setTimeout(() => {
+            if (this.phase === 'PLAY' || this.phase === 'PROVOKE') {
+                this.glitchPass.enabled = false;
+                this.noisePass.uniforms['intensity'].value = prevNoise;
+                this.chromaticPass.uniforms['amount'].value = prevCA;
+            }
+        }, 2000);
+    }
+
     /**
      * Call every frame instead of renderer.render().
      * @param {number} [delta] - Frame delta in seconds (defaults to 16ms if omitted)

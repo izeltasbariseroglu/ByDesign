@@ -23,8 +23,7 @@ import { EndScreen } from '../ui/endScreen.js';
 // ═══════════════════════════════════════════════════════════════════════════
 export const QA_MODE_ENABLED = true;
 
-// Katman 2: Kollar/Viewmodel (Duvar clipping fix)
-export const VIEWMODEL_LAYER = 2;
+// Katman 2: Kollar/Viewmodel (Duvar clipping fix) - REMOVED
 
 export class Game {
     constructor() {
@@ -61,6 +60,8 @@ export class Game {
         this.totalCandies = 10;
         this.isProvoking = false;
         this.lastProvokeTime = 0;
+        
+        this._playedMessages = new Set();
     }
 
     async init() {
@@ -99,23 +100,16 @@ export class Game {
         sun.shadow.camera.right = 50;
         sun.shadow.camera.top = 50;
         sun.shadow.camera.bottom = -50;
-        sun.layers.enable(VIEWMODEL_LAYER); // Kollar aydınlansın
         this.scene.add(sun);
 
         const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x3d5c1f, 0.6); // Sky to Grass bounce
-        hemiLight.layers.enable(VIEWMODEL_LAYER); // Kollar aydınlansın
         this.scene.add(hemiLight);
         
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
         this.camera.position.set(-18.75, 1.7, -18.75); // Grid [1,1] in 17x17 dungeon
         
-        // AAA Standard: Independent Viewmodel Camera
-        // 50 degree FOV prevents viewmodel stretching when main FOV is high
-        this.viewmodelCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
-        this.camera.add(this.viewmodelCamera);
-        
         // CRITICAL: camera must be in the scene graph for camera.add() children
-        // (the POV arms) to be rendered.
+        // to be rendered.
         this.scene.add(this.camera);
 
         this.renderer = new THREE.WebGLRenderer({
@@ -146,7 +140,7 @@ export class Game {
         this.glitchSystem.setPhase('LOCKED');
         this.audio = new AudioSystem();
 
-        this.player = new PlayerController(this.camera, this.viewmodelCamera, this.input, this.maze, this.audio, this.loadingManager);
+        this.player = new PlayerController(this.camera, null, this.input, this.maze, this.audio, this.loadingManager);
         this.player.addToScene(this.scene);
 
         // ── Loading Sequence ──────────────────────────────────────────────────
@@ -159,10 +153,12 @@ export class Game {
 
         // 3. Wait for camera permission (click to start)
         this.hud.update("LOCKED", "", this.player.position, this.maze.getMazeInfo());
+        // Hide HUD container during intro sequence
+        document.getElementById('hud-container').style.display = 'none';
         
         this._cameraRequestPending = false; // Guard against double-click race condition
 
-        const setupStart = async () => {
+        this._setupStartRef = async () => {
             // Block start until both GLBs are fully loaded
             if (!this._assetsReady) {
                 console.log('ByDesign: Click received but assets not ready yet — ignoring.');
@@ -178,7 +174,7 @@ export class Game {
             try {
                 console.log('ByDesign: Requesting camera...');
                 const hasCamera = await this.capture.requestCameraPermission();
-                document.removeEventListener('click', setupStart);
+                document.removeEventListener('click', this._setupStartRef);
                 if (hasCamera) {
                     this.startGameTimeline();
                 } else {
@@ -186,14 +182,15 @@ export class Game {
                 }
             } catch (err) {
                 console.error('ByDesign: Unexpected error during camera setup —', err);
-                document.removeEventListener('click', setupStart);
+                document.removeEventListener('click', this._setupStartRef);
                 this._showCameraDeniedOverlay();
             } finally {
                 this._cameraRequestPending = false;
             }
         };
 
-        document.addEventListener('click', setupStart);
+        // Event listener will be added after intro sequence in _unlockStartScreen()
+
 
         // QA hotkeys registered once at init time
         this._setupQAHotkeys();
@@ -285,6 +282,29 @@ export class Game {
                 this.endScreen.show(this.capture.initialPhoto, this.capture.finalPhoto);
             }, 5000);
         }
+
+        // Periodic Glitch (Every 25s)
+        const glitchCycle = Math.floor(currentTotalTime / 25);
+        if (glitchCycle > (this.lastGlitchCycle || 0) && this.stateMachine.is("PLAY")) {
+            this.lastGlitchCycle = glitchCycle;
+            this.glitchSystem.triggerPeriodicGlitch();
+        }
+
+        // Scripted Timed Messages
+        const timedMessages = [
+            { t: 10, msg: "You think this is easy?" },
+            { t: 30, msg: "Hahaha, you're so bad at this." },
+            { t: 60, msg: "You look stupid thinking you can win." },
+            { t: 85, msg: "Poor you." },
+            { t: 115, msg: "Did you really think you could do it?" }
+        ];
+
+        timedMessages.forEach(item => {
+            if (currentTotalTime >= item.t && !this._playedMessages.has(item.t)) {
+                this._playedMessages.add(item.t);
+                this.hud.showTimedMessage(item.msg, this.audio);
+            }
+        });
 
         // 2. Subsystem Updates
         const isPOV = this.stateMachine.is("PLAY") || this.stateMachine.is("PROVOKE");
@@ -396,21 +416,8 @@ export class Game {
         if (this.glitchSystem) {
             try {
                 if (isPOV) {
-                    // Pass 1: Dünya (Viewmodel Hariç)
-                    this.camera.layers.disable(VIEWMODEL_LAYER);
+                    // Pass 1: Dünya
                     this.glitchSystem.render();
-
-                    // Pass 2: Viewmodel (Her şeyin üstünde)
-                    this.renderer.clearDepth();
-                    this.viewmodelCamera.layers.set(VIEWMODEL_LAYER);
-                    
-                    const oldBg = this.scene.background;
-                    this.scene.background = null; // KRİTİK DÜZELTME: Gökyüzü ikinci geçişte labirenti silmesin
-                    this.renderer.render(this.scene, this.viewmodelCamera);
-                    this.scene.background = oldBg;
-                    
-                    // Reset
-                    this.camera.layers.enableAll();
                 } else {
                     this.glitchSystem.render();
                 }
@@ -432,11 +439,6 @@ export class Game {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         
-        if (this.viewmodelCamera) {
-            this.viewmodelCamera.aspect = window.innerWidth / window.innerHeight;
-            this.viewmodelCamera.updateProjectionMatrix();
-        }
-
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         if (this.glitchSystem) {
             this.glitchSystem.onResize(window.innerWidth, window.innerHeight);
@@ -494,10 +496,77 @@ export class Game {
         if (el) {
             el.style.transition = 'opacity 0.6s ease';
             el.style.opacity = '0';
-            setTimeout(() => el.remove(), 700);
+            setTimeout(() => {
+                el.remove();
+                this._playIntroSequence();
+            }, 700);
+        } else {
+            this._playIntroSequence();
         }
         this._assetsReady = true;
-        console.log('ByDesign: All GLBs loaded — experience unlocked for click-to-start.');
+    }
+
+    _playIntroSequence() {
+        const overlay = document.createElement('div');
+        overlay.id = 'intro-sequence-overlay';
+        overlay.style.cssText = `
+            position: fixed; inset: 0;
+            background: #000;
+            z-index: 9000;
+            display: flex; justify-content: center; align-items: center;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 2.2rem;
+            text-align: center;
+            opacity: 1;
+            transition: opacity 1s ease;
+        `;
+        const textEl = document.createElement('div');
+        textEl.style.transition = 'opacity 0.5s ease';
+        textEl.style.opacity = '0';
+        overlay.appendChild(textEl);
+        document.body.appendChild(overlay);
+
+        const sentences = [
+            { text: "Only smart people can win this game.", duration: 5000 },
+            { text: "Let's see what happens to you.", duration: 4000 },
+            { text: "You have 2.5 minutes.", duration: 4000 },
+            { text: "Collect 10 candies to win.", duration: 4000 }
+        ];
+
+        let index = 0;
+
+        const showNext = () => {
+            if (index >= sentences.length) {
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    overlay.remove();
+                    this._unlockStartScreen();
+                }, 1000);
+                return;
+            }
+
+            const current = sentences[index];
+            textEl.innerText = current.text;
+            textEl.style.opacity = '1';
+
+            setTimeout(() => {
+                textEl.style.opacity = '0';
+                setTimeout(() => {
+                    index++;
+                    showNext();
+                }, 500); // 0.5s pause between sentences
+            }, current.duration - 500);
+        };
+
+        // Start sequence after a brief pause
+        setTimeout(showNext, 500);
+    }
+
+    _unlockStartScreen() {
+        console.log("ByDesign: Intro sequence finished. Waiting for click to start.");
+        document.getElementById('hud-container').style.display = 'block';
+        document.addEventListener('click', this._setupStartRef);
     }
 
     /** Helper: Recursively disposes geometries and materials to prevent memory leaks */
