@@ -143,6 +143,9 @@ export class Game {
         this.player = new PlayerController(this.camera, null, this.input, this.maze, this.audio, this.loadingManager);
         this.player.addToScene(this.scene);
 
+        // Pre-request camera permission immediately on load to prevent pointer-lock interruption later
+        this.capture.requestCameraPermission().catch(e => console.warn('Pre-request camera failed', e));
+
         // ── Loading Sequence ──────────────────────────────────────────────────
         this._assetsReady = false;
         this._showLoadingOverlay();
@@ -151,45 +154,10 @@ export class Game {
             console.log('ByDesign: Candy system initialized.');
         });
 
-        // 3. Wait for camera permission (click to start)
-        this.hud.update("LOCKED", "", this.player.position, this.maze.getMazeInfo());
-        // Hide HUD container during intro sequence
+        // 3. Hide HUD container during intro sequence
         document.getElementById('hud-container').style.display = 'none';
-        
-        this._cameraRequestPending = false; // Guard against double-click race condition
 
-        this._setupStartRef = async () => {
-            // Block start until both GLBs are fully loaded
-            if (!this._assetsReady) {
-                console.log('ByDesign: Click received but assets not ready yet — ignoring.');
-                return;
-            }
-            // Prevent concurrent camera requests from double-clicks
-            if (this._cameraRequestPending) {
-                console.log('ByDesign: Camera request already in flight — ignoring duplicate click.');
-                return;
-            }
-            this._cameraRequestPending = true;
-
-            try {
-                console.log('ByDesign: Requesting camera...');
-                const hasCamera = await this.capture.requestCameraPermission();
-                document.removeEventListener('click', this._setupStartRef);
-                if (hasCamera) {
-                    this.startGameTimeline();
-                } else {
-                    this._showCameraDeniedOverlay();
-                }
-            } catch (err) {
-                console.error('ByDesign: Unexpected error during camera setup —', err);
-                document.removeEventListener('click', this._setupStartRef);
-                this._showCameraDeniedOverlay();
-            } finally {
-                this._cameraRequestPending = false;
-            }
-        };
-
-        // Event listener will be added after intro sequence in _unlockStartScreen()
+        // Event listener is now handled in _hideLoadingOverlay()
 
 
         // QA hotkeys registered once at init time
@@ -490,16 +458,41 @@ export class Game {
         console.log('ByDesign: Loading overlay shown.');
     }
 
-    /** Hides the loading overlay and marks assets as ready */
+    /** Hides the loading overlay and sets up the start click */
     _hideLoadingOverlay() {
         const el = document.getElementById('loading-overlay');
         if (el) {
-            el.style.transition = 'opacity 0.6s ease';
-            el.style.opacity = '0';
-            setTimeout(() => {
-                el.remove();
-                this._playIntroSequence();
-            }, 700);
+            el.innerHTML = `
+                <button id="start-game-btn" style="
+                    background: transparent;
+                    border: 2px solid #ff69b4;
+                    color: #ff69b4;
+                    font-size: 2.5rem;
+                    padding: 15px 40px;
+                    font-family: 'Courier New', monospace;
+                    cursor: pointer;
+                    text-transform: uppercase;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 0 15px rgba(255, 105, 180, 0.4);
+                " onmouseover="this.style.background='#ff69b4'; this.style.color='#000';"
+                   onmouseout="this.style.background='transparent'; this.style.color='#ff69b4';">
+                    START GAME
+                </button>
+            `;
+            const btn = document.getElementById('start-game-btn');
+            btn.addEventListener('click', async () => {
+                if (this.player) {
+                    this.player.enablePointerLock();
+                    document.body.requestPointerLock();
+                }
+
+                el.style.transition = 'opacity 0.6s ease';
+                el.style.opacity = '0';
+                setTimeout(() => {
+                    el.remove();
+                    this._playIntroSequence();
+                }, 700);
+            }, { once: true });
         } else {
             this._playIntroSequence();
         }
@@ -564,9 +557,11 @@ export class Game {
     }
 
     _unlockStartScreen() {
-        console.log("ByDesign: Intro sequence finished. Waiting for click to start.");
+        console.log("ByDesign: Intro sequence finished. Auto-starting game.");
         document.getElementById('hud-container').style.display = 'block';
-        document.addEventListener('click', this._setupStartRef);
+        
+        // Start the game immediately. The pointer is already locked!
+        this.startGameTimeline();
     }
 
     /** Helper: Recursively disposes geometries and materials to prevent memory leaks */
