@@ -208,23 +208,32 @@ export class EndScreen {
             this.photosContainer.style.opacity = '1';
         }, 100);
 
+        this.textLabel.innerHTML = '';
+        const mainTextEl = document.createElement('div');
+        mainTextEl.innerText = "AHAHAH, LOOK AT YOUR FUNNY FACE!";
+        mainTextEl.style.cssText = `opacity: 0; transition: opacity 0.5s ease; color: #ff4d4d; font-size: 2.5rem; text-shadow: 0 0 15px rgba(255,77,77,0.5);`;
+        
+        const subTextEl = document.createElement('div');
+        subTextEl.style.cssText = `opacity: 0; transition: opacity 0.5s ease; margin-top: 25px; font-size: 1.8rem; color: #ffffff;`;
+
+        this.textLabel.appendChild(mainTextEl);
+        this.textLabel.appendChild(subTextEl);
+
+        this.textLabel.style.display = 'block';
+        this.textLabel.style.opacity = '1';
+        this.textLabel.style.transition = 'none'; // Container doesn't fade, children do
+
         const sentences = [
-            { text: "It wasn't a game.", duration: 4000 },
-            { text: "You were just a toy.", duration: 4000 },
-            { text: "There is no escape.", duration: 4000 }
+            { text: "I tricked you, idiot.", duration: 4000 },
+            { text: "Control was always in the system’s hands.", duration: 4000 },
+            { text: "The game was coded to be unwinnable from the beginning.", duration: 8000 }
         ];
 
         let index = 0;
 
-        this.textLabel.style.display = 'block';
-        this.textLabel.style.transition = 'opacity 0.5s ease';
-        this.textLabel.style.opacity = '0';
-        this.textLabel.style.fontSize = '2.5rem';
-        this.textLabel.style.color = '#ffffff';
-
         const showNext = () => {
             if (index >= sentences.length) {
-                // Done with sentences. Hide text, show Play Again button.
+                // Done with sentences. Hide text container, show Play Again button.
                 this.textLabel.style.display = 'none';
                 this.playBtn.style.display = 'block';
 
@@ -235,11 +244,15 @@ export class EndScreen {
             }
 
             const current = sentences[index];
-            this.textLabel.innerText = current.text;
-            this.textLabel.style.opacity = '1';
+            subTextEl.innerText = current.text;
+            subTextEl.style.opacity = '1';
 
             setTimeout(() => {
-                this.textLabel.style.opacity = '0';
+                if (index === sentences.length - 1) {
+                    mainTextEl.style.opacity = '0';
+                }
+                subTextEl.style.opacity = '0';
+                
                 setTimeout(() => {
                     index++;
                     showNext();
@@ -248,6 +261,13 @@ export class EndScreen {
         };
 
         // Start the sequence after a brief pause
-        setTimeout(showNext, 1500);
+        setTimeout(() => {
+            mainTextEl.style.opacity = '1';
+            
+            // Keep main text for 3s before starting sub-texts
+            setTimeout(() => {
+                showNext();
+            }, 3000);
+        }, 1500);
     }
 }
