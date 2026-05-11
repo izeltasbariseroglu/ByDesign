@@ -25,8 +25,6 @@ export class Timer {
         // 10-120: PLAY phase   → countdown 2:20 → 0:30
         // 120+:   BREAK phase  → countdown 0:30 → 0:00 (sped up 3x internally)
         
-        if (this.elapsedTime < 10) return "PROVOKING...";
-
         if (this.elapsedTime < 150) {
             const remaining = Math.max(0, Math.floor(150 - this.elapsedTime));
             const mins = Math.floor(remaining / 60);

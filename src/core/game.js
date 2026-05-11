@@ -21,7 +21,7 @@ import { EndScreen } from '../ui/endScreen.js';
 //    3  → Force 9 candies collected + clear scene  (tests Provoke Engine messages)
 //    ~  → Toggle debug overlay panel
 // ═══════════════════════════════════════════════════════════════════════════
-export const QA_MODE_ENABLED = true;
+export const QA_MODE_ENABLED = false;
 
 // Katman 2: Kollar/Viewmodel (Duvar clipping fix) - REMOVED
 

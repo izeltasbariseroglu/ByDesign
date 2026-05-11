@@ -174,7 +174,7 @@ export class AudioSystem {
 
     // ─── Footstep ─────────────────────────────────────────────────────────────
     _playFootstep() {
-        if (!this.ctx || this.phase !== 'PLAY') return;
+        if (!this.ctx || (this.phase !== 'PLAY' && this.phase !== 'PROVOKE')) return;
         const now = this.ctx.currentTime;
 
         const thump     = this.ctx.createOscillator();

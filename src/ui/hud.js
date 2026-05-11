@@ -12,15 +12,16 @@ export class HUD {
         this.modeLabel.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
         this.modeLabel.style.border = '1px solid #fff';
         this.modeLabel.style.zIndex = '100';
+        this.modeLabel.style.display = 'none'; // User requested to hide Status box
         this.container.appendChild(this.modeLabel);
         
         // Candy Counter (Top-Right, below Mode)
         this.candyLabel = document.createElement('div');
         this.candyLabel.id = 'candy-label';
         this.candyLabel.style.position = 'fixed';
-        this.candyLabel.style.top = '70px';
-        this.candyLabel.style.right = '20px';
-        this.candyLabel.style.fontSize = '24px';
+        this.candyLabel.style.top = '30px'; // Moved up since Status box is gone
+        this.candyLabel.style.right = '30px';
+        this.candyLabel.style.fontSize = '32px'; // Increased from 24px
         this.candyLabel.style.fontFamily = 'monospace';
         this.candyLabel.style.color = '#ff69b4'; // Pink
         this.candyLabel.style.textShadow = '0 0 10px rgba(255,105,180,0.5)';

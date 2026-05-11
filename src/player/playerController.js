@@ -125,8 +125,8 @@ export class PlayerController {
                 this.distanceMoved = 0;
             }
         } else if (!movedThisFrame) {
-            // Durduğumuzda bir sonraki adımın hemem gelmesi için mesafeyi azalt (fakat hemen sıfırlama)
-            this.distanceMoved = Math.max(0, this.distanceMoved - delta * 2);
+            // Durduğumuzda bir sonraki adımın anında gelmesi için mesafeyi 1.4'e sabitle (prime state)
+            this.distanceMoved = 1.4;
         }
 
         if (isPOV) {
