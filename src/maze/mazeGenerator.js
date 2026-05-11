@@ -177,17 +177,29 @@ export class MazeGenerator {
         const centerInstanced = new THREE.InstancedMesh(centerGeo, centerMat, maxFlowers);
         
         const petalGeo = new THREE.SphereGeometry(0.045, 8, 8);
-        const petalMat = new THREE.MeshLambertMaterial({ color: 0xffb6c1 });
+        const petalMat = new THREE.MeshLambertMaterial({ color: 0xffffff }); // Base color white to allow vertex colors
         const petalInstanced = new THREE.InstancedMesh(petalGeo, petalMat, maxFlowers * 5);
 
         const dummy = new THREE.Object3D();
         const dummyPetal = new THREE.Object3D();
+        const color = new THREE.Color();
         let fIdx = 0;
         let pIdx = 0;
 
+        // Palette of pink and lilac shades
+        const palette = [
+            0xffb6c1, // LightPink
+            0xff69b4, // HotPink
+            0xdda0dd, // Plum
+            0xee82ee, // Violet
+            0xda70d6, // Orchid
+            0xba55d3, // MediumOrchid
+            0xd8bfd8  // Thistle
+        ];
+
         segments.forEach(({ x, z, w, d }) => {
             const area = 2 * (w * 2 + d * 2); // Approximate surface area (sides)
-            const numFlowers = Math.floor(area * 0.6); // Density factor
+            const numFlowers = Math.floor(area * 0.3); // Density factor reduced from 0.6 to 0.3
 
             for (let i = 0; i < numFlowers; i++) {
                 if (fIdx >= maxFlowers) break;
@@ -197,10 +209,19 @@ export class MazeGenerator {
                 let fx = x, fz = z, fy = 0.4 + Math.random() * 1.4; // Height 0.4 to 1.8
                 let normal = new THREE.Vector3();
 
-                if (face === 0) { fx += w/2 + 0.2; fz += (Math.random()-0.5)*d; normal.set(1,0,0); }
-                else if (face === 1) { fx -= w/2 + 0.2; fz += (Math.random()-0.5)*d; normal.set(-1,0,0); }
-                else if (face === 2) { fz += d/2 + 0.2; fx += (Math.random()-0.5)*w; normal.set(0,0,1); }
-                else { fz -= d/2 + 0.2; fx += (Math.random()-0.5)*w; normal.set(0,0,-1); }
+                // Set offset to 0.18 (wall surface is at 0.2). This embeds them slightly (0.02) to prevent floating gaps.
+                const offset = 0.18;
+
+                // The walls are RoundedBoxGeometry with radius 0.6. 
+                // We must restrict flowers from spawning near the corners where the geometry curves away,
+                // otherwise they will appear to float in mid-air.
+                const safeD = Math.max(0.1, d - 0.8);
+                const safeW = Math.max(0.1, w - 0.8);
+
+                if (face === 0) { fx += w/2 + offset; fz += (Math.random()-0.5)*safeD; normal.set(1,0,0); }
+                else if (face === 1) { fx -= w/2 + offset; fz += (Math.random()-0.5)*safeD; normal.set(-1,0,0); }
+                else if (face === 2) { fz += d/2 + offset; fx += (Math.random()-0.5)*safeW; normal.set(0,0,1); }
+                else { fz -= d/2 + offset; fx += (Math.random()-0.5)*safeW; normal.set(0,0,-1); }
 
                 // Set dummy base orientation
                 dummy.position.set(fx, fy, fz);
@@ -212,6 +233,9 @@ export class MazeGenerator {
 
                 dummy.updateMatrix();
                 centerInstanced.setMatrixAt(fIdx, dummy.matrix);
+
+                // Pick a random color for this specific flower
+                color.setHex(palette[Math.floor(Math.random() * palette.length)]);
 
                 for(let p=0; p<5; p++) {
                     const angle = (p / 5) * Math.PI * 2;
@@ -225,6 +249,7 @@ export class MazeGenerator {
                     
                     dummyPetal.updateMatrix();
                     petalInstanced.setMatrixAt(pIdx, dummyPetal.matrix);
+                    petalInstanced.setColorAt(pIdx, color);
                     pIdx++;
                 }
                 fIdx++;
@@ -236,6 +261,7 @@ export class MazeGenerator {
         
         centerInstanced.instanceMatrix.needsUpdate = true;
         petalInstanced.instanceMatrix.needsUpdate = true;
+        if (petalInstanced.instanceColor) petalInstanced.instanceColor.needsUpdate = true;
 
         this.scene.add(centerInstanced);
         this.scene.add(petalInstanced);
