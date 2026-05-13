@@ -121,6 +121,19 @@ export class Game {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
+        // Pre-request camera permission BEFORE loading assets to prevent async race conditions
+        try {
+            const hasCamera = await this.capture.requestCameraPermission();
+            if (!hasCamera) {
+                this._showCameraDeniedOverlay();
+                return; // Halt initialization
+            }
+        } catch (e) {
+            console.warn('Pre-request camera failed', e);
+            this._showCameraDeniedOverlay();
+            return; // Halt initialization
+        }
+
         // 2. Systems Setup
         this.input = new InputManipulator();
         
@@ -142,19 +155,6 @@ export class Game {
 
         this.player = new PlayerController(this.camera, null, this.input, this.maze, this.audio, this.loadingManager);
         this.player.addToScene(this.scene);
-
-        // Pre-request camera permission immediately on load to prevent pointer-lock interruption later
-        try {
-            const hasCamera = await this.capture.requestCameraPermission();
-            if (!hasCamera) {
-                this._showCameraDeniedOverlay();
-                return; // Halt initialization
-            }
-        } catch (e) {
-            console.warn('Pre-request camera failed', e);
-            this._showCameraDeniedOverlay();
-            return; // Halt initialization
-        }
 
         // ── Loading Sequence ──────────────────────────────────────────────────
         this._assetsReady = false;
@@ -470,6 +470,9 @@ export class Game {
 
     /** Hides the loading overlay and sets up the start click */
     _hideLoadingOverlay() {
+        if (this._assetsReady) return; // Prevent multiple executions
+        this._assetsReady = true;
+
         const el = document.getElementById('loading-overlay');
         if (el) {
             el.innerHTML = `
@@ -509,9 +512,9 @@ export class Game {
                 }, 700);
             }, { once: true });
         } else {
+            // Fallback just in case, but usually handled by the button
             this._playIntroSequence();
         }
-        this._assetsReady = true;
     }
 
     _playIntroSequence() {
