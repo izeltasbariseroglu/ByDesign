@@ -290,24 +290,27 @@ export class AudioSystem {
         if (!this.ctx) return;
         const now = this.ctx.currentTime;
 
-        // 1. Digital tape stutter/static noise (2 seconds)
+        // 1. Digital tape stutter/static noise (2 seconds sync)
         const bufSize  = Math.floor(this.ctx.sampleRate * 2.0);
         const buf      = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
         const data     = buf.getChannelData(0);
         for (let i = 0; i < bufSize; i++) {
-            if (Math.random() > 0.93) data[i] = Math.random() * 2 - 1; // Sporadic pops
+            if (Math.random() > 0.93) data[i] = Math.random() * 2 - 1; 
             else data[i] = 0;
         }
 
         const noise    = this.ctx.createBufferSource();
         noise.buffer   = buf;
         const noiseEnv = this.ctx.createGain();
-        noiseEnv.gain.setValueAtTime(0.5, now);
-        noiseEnv.gain.setTargetAtTime(0.0, now + 2.0, 0.2);
+        noiseEnv.gain.setValueAtTime(0.2, now); // 60% quieter (was 0.5)
+        // Hard cut at exactly 2.0s to match visual glitch
+        noiseEnv.gain.setValueAtTime(0.2, now + 1.95);
+        noiseEnv.gain.linearRampToValueAtTime(0.001, now + 2.0);
 
         noise.connect(noiseEnv);
         noiseEnv.connect(this._masterGain);
         noise.start(now);
+        noise.stop(now + 2.0);
 
         // 2. High pitched screech (0.4s)
         const osc = this.ctx.createOscillator();
@@ -316,7 +319,7 @@ export class AudioSystem {
         osc.frequency.setTargetAtTime(100, now + 0.1, 0.1);
         
         const env = this.ctx.createGain();
-        env.gain.setValueAtTime(0.12, now);
+        env.gain.setValueAtTime(0.05, now); // 60% quieter (was 0.12)
         env.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
         
         osc.connect(env);
@@ -324,7 +327,7 @@ export class AudioSystem {
         osc.start(now);
         osc.stop(now + 0.4);
 
-        // 3. Modulate BGM playback rate to create tape stutter
+        // 3. Modulate BGM playback rate to create tape stutter (exactly 2.0s)
         if (this._bgmSource && this._bgmSource.playbackRate) {
             this._bgmSource.playbackRate.setValueAtTime(1.0, now);
             this._bgmSource.playbackRate.setValueAtTime(0.6, now + 0.1);
@@ -332,7 +335,8 @@ export class AudioSystem {
             this._bgmSource.playbackRate.setValueAtTime(0.8, now + 0.6);
             this._bgmSource.playbackRate.setValueAtTime(1.5, now + 0.9);
             this._bgmSource.playbackRate.setValueAtTime(0.5, now + 1.2);
-            this._bgmSource.playbackRate.linearRampToValueAtTime(1.0, now + 2.0);
+            this._bgmSource.playbackRate.setValueAtTime(0.8, now + 1.6);
+            this._bgmSource.playbackRate.setValueAtTime(1.0, now + 2.0);
         }
     }
 
@@ -341,18 +345,18 @@ export class AudioSystem {
         if (!this.ctx) return;
         const now = this.ctx.currentTime;
 
-        // BGM extreme distortion and pitch dive
+        // BGM extreme distortion and pitch dive (synced to 0.5s burst)
         if (this._bgmSource && this._bgmSource.playbackRate) {
             this._bgmSource.playbackRate.setValueAtTime(1.0, now);
             this._bgmSource.playbackRate.setValueAtTime(0.4, now + 0.1);
             this._bgmSource.playbackRate.setValueAtTime(2.0, now + 0.2);
-            this._bgmSource.playbackRate.setValueAtTime(0.2, now + 0.4);
-            // Long dramatic tape stop dive
-            this._bgmSource.playbackRate.exponentialRampToValueAtTime(0.01, now + 3.0);
+            this._bgmSource.playbackRate.setValueAtTime(0.1, now + 0.3);
+            // Halt completely at 0.5s
+            this._bgmSource.playbackRate.exponentialRampToValueAtTime(0.001, now + 0.5);
         }
 
-        // 1. Geniş bant white-noise patlaması (0 → 0.8s)
-        const bufSize  = Math.floor(this.ctx.sampleRate * 0.8);
+        // 1. Geniş bant white-noise patlaması (0 → 0.5s to match visual phase 1)
+        const bufSize  = Math.floor(this.ctx.sampleRate * 0.5);
         const buf      = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
         const data     = buf.getChannelData(0);
         for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
@@ -361,29 +365,31 @@ export class AudioSystem {
         noise.buffer   = buf;
 
         const noiseEnv = this.ctx.createGain();
-        noiseEnv.gain.setValueAtTime(0.9, now);
-        noiseEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+        noiseEnv.gain.setValueAtTime(0.36, now); // 60% quieter (was 0.9)
+        noiseEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
 
         noise.connect(noiseEnv);
         noiseEnv.connect(this._masterGain);
         noise.start(now);
+        noise.stop(now + 0.5);
 
         // 2. Yüksek frekanslı bozuk bip (kırık sistem sinyali)
         const buzzFreqs = [3520, 2640, 4400, 1760];
         buzzFreqs.forEach((freq, i) => {
             const osc = this.ctx.createOscillator();
             osc.type  = 'sawtooth';
-            osc.frequency.setValueAtTime(freq, now + i * 0.07);
-            osc.frequency.exponentialRampToValueAtTime(freq * 0.3, now + i * 0.07 + 0.3);
+            const startT = now + i * 0.05;
+            osc.frequency.setValueAtTime(freq, startT);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.3, startT + 0.2);
 
             const env = this.ctx.createGain();
-            env.gain.setValueAtTime(0.25, now + i * 0.07);
-            env.gain.exponentialRampToValueAtTime(0.001, now + i * 0.07 + 0.35);
+            env.gain.setValueAtTime(0.1, startT); // 60% quieter (was 0.25)
+            env.gain.exponentialRampToValueAtTime(0.001, startT + 0.25);
 
             osc.connect(env);
             env.connect(this._masterGain);
-            osc.start(now + i * 0.07);
-            osc.stop(now + i * 0.07 + 0.4);
+            osc.start(startT);
+            osc.stop(startT + 0.3);
         });
 
         console.warn('AudioSystem: COLLAPSE burst fired.');
