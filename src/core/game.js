@@ -256,6 +256,9 @@ export class Game {
         if (glitchCycle > (this.lastGlitchCycle || 0) && this.stateMachine.is("PLAY")) {
             this.lastGlitchCycle = glitchCycle;
             this.glitchSystem.triggerPeriodicGlitch();
+            if (this.audio && this.audio.triggerPeriodicGlitch) {
+                this.audio.triggerPeriodicGlitch();
+            }
         }
 
         // Scripted Timed Messages
