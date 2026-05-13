@@ -285,78 +285,13 @@ export class AudioSystem {
         });
     }
 
-    // ─── Periodic Glitch Burst ───────────────────────────────────────────────
-    _playPeriodicGlitch() {
-        if (!this.ctx) return;
-        const now = this.ctx.currentTime;
-
-        // 1. Digital tape stutter/static noise (Exactly 2.0s sync)
-        const bufSize  = Math.floor(this.ctx.sampleRate * 2.0);
-        const buf      = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
-        const data     = buf.getChannelData(0);
-        for (let i = 0; i < bufSize; i++) {
-            if (Math.random() > 0.93) data[i] = Math.random() * 2 - 1; 
-            else data[i] = 0;
-        }
-
-        const noise    = this.ctx.createBufferSource();
-        noise.buffer   = buf;
-        const noiseEnv = this.ctx.createGain();
-        noiseEnv.gain.setValueAtTime(0.05, now); // 75% quieter from 0.2
-        noiseEnv.gain.setValueAtTime(0.05, now + 1.95); // Hold steady
-        noiseEnv.gain.linearRampToValueAtTime(0.0001, now + 2.0); // Precise cut at 2.0s
-
-        noise.connect(noiseEnv);
-        noiseEnv.connect(this._masterGain);
-        noise.start(now);
-        noise.stop(now + 2.0);
-
-        // 2. High pitched screech (Exactly 2.0s sync, was 0.4s)
-        const osc = this.ctx.createOscillator();
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(800 + Math.random() * 400, now);
-        for (let i = 0.1; i < 2.0; i += 0.1) {
-            osc.frequency.linearRampToValueAtTime(800 + Math.random() * 400, now + i);
-        }
-        
-        const env = this.ctx.createGain();
-        env.gain.setValueAtTime(0.0125, now); // 75% quieter from 0.05
-        env.gain.setValueAtTime(0.0125, now + 1.95); // Hold steady
-        env.gain.linearRampToValueAtTime(0.0001, now + 2.0); // Precise cut at 2.0s
-        
-        osc.connect(env);
-        env.connect(this._masterGain);
-        osc.start(now);
-        osc.stop(now + 2.0);
-
-        // 3. Modulate BGM playback rate to create tape stutter (Exactly 2.0s)
-        if (this._bgmSource && this._bgmSource.playbackRate) {
-            this._bgmSource.playbackRate.setValueAtTime(1.0, now);
-            this._bgmSource.playbackRate.setValueAtTime(0.6, now + 0.1);
-            this._bgmSource.playbackRate.setValueAtTime(1.2, now + 0.3);
-            this._bgmSource.playbackRate.setValueAtTime(0.8, now + 0.6);
-            this._bgmSource.playbackRate.setValueAtTime(1.5, now + 0.9);
-            this._bgmSource.playbackRate.setValueAtTime(0.5, now + 1.2);
-            this._bgmSource.playbackRate.setValueAtTime(0.8, now + 1.6);
-            this._bgmSource.playbackRate.setValueAtTime(1.0, now + 2.0); // Snap back precisely
-        }
-    }
-
     // ─── Collapse Burst — Dijital cızırtı / white-noise patlaması ───────────
     _playCollapseBurst() {
         if (!this.ctx) return;
         const now = this.ctx.currentTime;
 
-        // BGM extreme distortion and pitch dive (Exactly 0.5s sync)
-        if (this._bgmSource && this._bgmSource.playbackRate) {
-            this._bgmSource.playbackRate.setValueAtTime(1.0, now);
-            this._bgmSource.playbackRate.setValueAtTime(0.5, now + 0.1);
-            this._bgmSource.playbackRate.setValueAtTime(0.2, now + 0.3);
-            this._bgmSource.playbackRate.linearRampToValueAtTime(0.001, now + 0.5); // Halt completely at 0.5s
-        }
-
-        // 1. Geniş bant white-noise patlaması (Exactly 0.5s)
-        const bufSize  = Math.floor(this.ctx.sampleRate * 0.5);
+        // 1. Geniş bant white-noise patlaması (0 → 0.8s)
+        const bufSize  = Math.floor(this.ctx.sampleRate * 0.8);
         const buf      = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
         const data     = buf.getChannelData(0);
         for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
@@ -365,32 +300,29 @@ export class AudioSystem {
         noise.buffer   = buf;
 
         const noiseEnv = this.ctx.createGain();
-        noiseEnv.gain.setValueAtTime(0.09, now); // 75% quieter from 0.36
-        noiseEnv.gain.setValueAtTime(0.09, now + 0.45); // Hold steady
-        noiseEnv.gain.linearRampToValueAtTime(0.0001, now + 0.5); // Precise cut at 0.5s
+        noiseEnv.gain.setValueAtTime(0.9, now);
+        noiseEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
 
         noise.connect(noiseEnv);
         noiseEnv.connect(this._masterGain);
         noise.start(now);
-        noise.stop(now + 0.5);
 
-        // 2. Yüksek frekanslı bozuk bip (Exactly 0.5s, no staggering)
+        // 2. Yüksek frekanslı bozuk bip (kırık sistem sinyali)
         const buzzFreqs = [3520, 2640, 4400, 1760];
-        buzzFreqs.forEach((freq) => {
+        buzzFreqs.forEach((freq, i) => {
             const osc = this.ctx.createOscillator();
             osc.type  = 'sawtooth';
-            osc.frequency.setValueAtTime(freq, now);
-            osc.frequency.exponentialRampToValueAtTime(freq * 0.3, now + 0.5);
+            osc.frequency.setValueAtTime(freq, now + i * 0.07);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.3, now + i * 0.07 + 0.3);
 
             const env = this.ctx.createGain();
-            env.gain.setValueAtTime(0.025, now); // 75% quieter from 0.1
-            env.gain.setValueAtTime(0.025, now + 0.45); // Hold steady
-            env.gain.linearRampToValueAtTime(0.0001, now + 0.5); // Precise cut at 0.5s
+            env.gain.setValueAtTime(0.25, now + i * 0.07);
+            env.gain.exponentialRampToValueAtTime(0.001, now + i * 0.07 + 0.35);
 
             osc.connect(env);
             env.connect(this._masterGain);
-            osc.start(now);
-            osc.stop(now + 0.5);
+            osc.start(now + i * 0.07);
+            osc.stop(now + i * 0.07 + 0.4);
         });
 
         console.warn('AudioSystem: COLLAPSE burst fired.');
@@ -470,11 +402,6 @@ export class AudioSystem {
     /** 150s'de GlitchSystem.triggerCollapse() ile eş zamanlı çağrılır */
     triggerCollapse() {
         this._playCollapseBurst();
-    }
-
-    /** 25 saniyede bir ekran glitch olduğunda çağrılır */
-    triggerPeriodicGlitch() {
-        this._playPeriodicGlitch();
     }
 
     // ─── Phase 2: Spatial Audio & Specialist Feedback ───────────────────────
