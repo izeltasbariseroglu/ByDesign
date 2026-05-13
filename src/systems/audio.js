@@ -32,7 +32,17 @@ export class AudioSystem {
             this.ctx = new (window.AudioContext || window.webkitAudioContext)();
             this._masterGain  = this.ctx.createGain();
             this._masterGain.gain.value = 1.0;
-            this._masterGain.connect(this.ctx.destination);
+            
+            this._compressor = this.ctx.createDynamicsCompressor();
+            this._compressor.threshold.value = -3;
+            this._compressor.knee.value = 10;
+            this._compressor.ratio.value = 12;
+            this._compressor.attack.value = 0.003;
+            this._compressor.release.value = 0.25;
+
+            this._masterGain.connect(this._compressor);
+            this._compressor.connect(this.ctx.destination);
+            
             this._buildHeartbeat();
             this._loadBackgroundMusic('/assets/8-Bit-Indigestion_Looping.ogg');
             console.log(`AudioSystem: Initialized (state: ${this.ctx.state}).`);
@@ -300,7 +310,7 @@ export class AudioSystem {
         noise.buffer   = buf;
 
         const noiseEnv = this.ctx.createGain();
-        noiseEnv.gain.setValueAtTime(0.9, now);
+        noiseEnv.gain.setValueAtTime(0.4, now);
         noiseEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
 
         noise.connect(noiseEnv);

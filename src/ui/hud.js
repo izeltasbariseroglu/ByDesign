@@ -2,24 +2,13 @@ export class HUD {
     constructor() {
         this.container = document.getElementById('hud-container');
         
-        // Status Top-Right
-        this.modeLabel = document.createElement('div');
-        this.modeLabel.setAttribute('id', 'mode-label');
-        this.modeLabel.style.position = 'fixed';
-        this.modeLabel.style.top = '20px';
-        this.modeLabel.style.right = '20px';
-        this.modeLabel.style.padding = '10px 20px';
-        this.modeLabel.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-        this.modeLabel.style.border = '1px solid #fff';
-        this.modeLabel.style.zIndex = '100';
-        this.modeLabel.style.display = 'none'; // User requested to hide Status box
-        this.container.appendChild(this.modeLabel);
+        // Status Top-Right (Removed per zombie code cleanup)
         
         // Candy Counter (Top-Right, below Mode)
         this.candyLabel = document.createElement('div');
         this.candyLabel.id = 'candy-label';
         this.candyLabel.style.position = 'fixed';
-        this.candyLabel.style.top = '30px'; // Moved up since Status box is gone
+        this.candyLabel.style.top = '20px'; // Moved to top-right corner
         this.candyLabel.style.right = '30px';
         this.candyLabel.style.fontSize = '32px'; // Increased from 24px
         this.candyLabel.style.fontFamily = 'monospace';
@@ -75,26 +64,17 @@ export class HUD {
         
         if (state === 'LOCKED') {
             this.messageCenter.innerHTML = "<span class='glitch'>CAMERA PERMISSION REQUIRED</span>";
-            this.modeLabel.innerHTML = "STATUS: UNAUTHORIZED";
             this.instructions.innerHTML = "CLICK ANYWHERE TO REQUEST ACCESS";
         } else if (state === 'PROVOKE') {
             this.messageCenter.innerHTML = "WELCOME TO THE GARDEN";
-            this.modeLabel.innerHTML = "STATUS: INITIALIZING";
             this.instructions.innerHTML = "CLICK TO LOCK CAMERA | WASD TO MOVE";
             this.timerLabel.style.opacity = '1';
         } else if (state === 'PLAY') {
             this.messageCenter.innerHTML = "";
-            this.modeLabel.innerHTML = "STATUS: STABLE";
-            this.modeLabel.style.color = "#fff";
-            this.modeLabel.style.borderColor = "#fff";
             this.timerLabel.style.opacity = '1';
             this.instructions.innerHTML = "WASD TO MOVE | CLICK TO LOCK";
         } else if (state === 'BREAK') {
             this.messageCenter.innerHTML = "";
-            this.modeLabel.innerHTML = "STATUS: FRAGMENTED";
-            this.modeLabel.style.color = "#ff4444";
-            this.modeLabel.style.borderColor = "#ff4444";
-            this.modeLabel.classList.add('glitch');
             this.instructions.innerHTML = "SYSTEM OVERRIDE DETECTED";
 
             // Kademeli Geçiş (Gradual Effect) - 120'den 150'ye giderken yoğunluğu artırıyoruz
@@ -116,9 +96,6 @@ export class HUD {
 
         } else if (state === 'END') {
             this.messageCenter.innerHTML = "<span class='glitch'>YOUR ESCAPE WAS AN ILLUSION.</span><br><br><span style='font-size: 1rem;'>SESSION TERMINATED</span>";
-            this.modeLabel.innerHTML = "STATUS: TERMINATED";
-            this.modeLabel.style.borderColor = "red";
-            this.modeLabel.style.color = "red";
             this.timerLabel.style.opacity = '0';
             this.instructions.innerHTML = "CLICK TO DISCONNECT";
         }

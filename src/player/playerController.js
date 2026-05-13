@@ -22,6 +22,7 @@ export class PlayerController {
         this.yaw = 0;
         
         this.isPointerLocked = false;
+        this.pointerLockAllowed = false;
         this.setupPointerLock();
 
         // Phase 2+3: Animation & Rigging — scene passed via setScene()
@@ -49,17 +50,18 @@ export class PlayerController {
                 this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
             }
         });
+
+        document.addEventListener('click', () => {
+            if (!this.isPointerLocked && this.pointerLockAllowed) {
+                document.body.requestPointerLock();
+            }
+        });
     }
 
     // Called externally (from game.js) after game starts so it doesn't
     // compete with camera permission click listener
     enablePointerLock() {
         this.pointerLockAllowed = true;
-        document.addEventListener('click', () => {
-            if (!this.isPointerLocked && this.pointerLockAllowed) {
-                document.body.requestPointerLock();
-            }
-        });
     }
 
     disablePointerLock() {

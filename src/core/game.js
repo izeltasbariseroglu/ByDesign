@@ -144,7 +144,17 @@ export class Game {
         this.player.addToScene(this.scene);
 
         // Pre-request camera permission immediately on load to prevent pointer-lock interruption later
-        this.capture.requestCameraPermission().catch(e => console.warn('Pre-request camera failed', e));
+        try {
+            const hasCamera = await this.capture.requestCameraPermission();
+            if (!hasCamera) {
+                this._showCameraDeniedOverlay();
+                return; // Halt initialization
+            }
+        } catch (e) {
+            console.warn('Pre-request camera failed', e);
+            this._showCameraDeniedOverlay();
+            return; // Halt initialization
+        }
 
         // ── Loading Sequence ──────────────────────────────────────────────────
         this._assetsReady = false;
@@ -166,14 +176,13 @@ export class Game {
         this.isInitialized = true;
     }
 
-    startGameTimeline() {
+    async startGameTimeline() {
         this.hasStarted = true;
         this.lastFrameTime = performance.now();
         this.stateMachine.changeState("PROVOKE");
         this.glitchSystem.setPhase('PROVOKE');
-        this.audio.resume();
         this.audio.setPhase('PROVOKE');
-        this.capture.takeInitialPhoto();
+        await this.capture.takeInitialPhoto();
         this.player.enablePointerLock();
         console.log("ByDesign: Timeline started cleanly at t=0.");
     }
@@ -244,6 +253,7 @@ export class Game {
             // 4. Final photo + END state + locked screen (after 5.0s so kneel plays and glitch persists)
             setTimeout(() => {
                 this.capture.takeFinalPhoto();
+                this.capture.stopCamera();
                 this.stateMachine.changeState("END");
                 this.glitchSystem.setPhase('END');
                 this.audio.setPhase('END');
@@ -329,7 +339,7 @@ export class Game {
                     // Stop spatial audio panner
                     this.audio.stopCandyPanner(candy.id);
 
-                    this.disposeHierarchy(mesh);
+                    // this.disposeHierarchy(mesh); // Prevent shared material destruction bug
                     this.scene.remove(mesh);
                     
                     // Safely remove from array
@@ -481,6 +491,11 @@ export class Game {
             `;
             const btn = document.getElementById('start-game-btn');
             btn.addEventListener('click', async () => {
+                // Resume audio context directly inside user gesture!
+                if (this.audio && this.audio.ctx && this.audio.ctx.state === 'suspended') {
+                    this.audio.ctx.resume().then(() => console.log('AudioSystem: Context resumed via user gesture.'));
+                }
+
                 if (this.player) {
                     this.player.enablePointerLock();
                     document.body.requestPointerLock();
@@ -717,7 +732,7 @@ export class Game {
                 for (let i = candies.length - 1; i >= 0; i--) {
                     const mesh = candies[i].getMesh();
                     if (mesh.parent) {
-                        this.disposeHierarchy(mesh);
+                        // this.disposeHierarchy(mesh); // Prevent shared material destruction bug
                         this.scene.remove(mesh);
                     }
                 }

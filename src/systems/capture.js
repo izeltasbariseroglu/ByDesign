@@ -61,27 +61,35 @@ export class CaptureSystem {
         return photoData;
     }
 
-    // FIX: Wait for video to have frame data before capturing the initial photo
     takeInitialPhoto() {
-        const doCapture = () => {
-            this.startPhoto = this.capturePhoto();
-            this.initialPhoto = this.startPhoto;
-            return this.startPhoto;
-        };
+        return new Promise((resolve) => {
+            const doCapture = () => {
+                this.startPhoto = this.capturePhoto();
+                this.initialPhoto = this.startPhoto;
+                resolve(this.startPhoto);
+            };
 
-        // If video already has data, capture immediately
-        if (this.video.readyState >= 2) {
-            return doCapture();
+            // If video already has data, capture immediately
+            if (this.video.readyState >= 2) {
+                doCapture();
+            } else {
+                // Otherwise wait for the first frame to be available
+                console.log("CaptureSystem: waiting for video to be ready before initial capture...");
+                this.video.addEventListener('loadeddata', () => {
+                    doCapture();
+                    console.log("CaptureSystem: initial photo captured after video ready.");
+                }, { once: true });
+            }
+        });
+    }
+
+    stopCamera() {
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+            this.video.srcObject = null;
+            this.stream = null;
+            console.log("CaptureSystem: Camera stream stopped.");
         }
-
-        // Otherwise wait for the first frame to be available
-        console.log("CaptureSystem: waiting for video to be ready before initial capture...");
-        this.video.addEventListener('loadeddata', () => {
-            doCapture();
-            console.log("CaptureSystem: initial photo captured after video ready.");
-        }, { once: true });
-
-        return null; // Will be set asynchronously
     }
 
     takeFinalPhoto() {
