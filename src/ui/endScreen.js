@@ -6,7 +6,7 @@ export class EndScreen {
             position: fixed;
             top: 0; left: 0;
             width: 100vw; height: 100vh;
-            background: #000;
+            background: transparent;
             z-index: 9999;
             display: none;
             flex-direction: column;
@@ -25,7 +25,6 @@ export class EndScreen {
             display: flex;
             gap: 30px;
             margin-bottom: 50px;
-            filter: grayscale(100%) contrast(1.3) brightness(0.9);
             opacity: 0;
             transition: opacity 3s ease;
         `;
@@ -48,7 +47,7 @@ export class EndScreen {
         this.playBtn.style.cssText = `
             margin-top: 20px;
             padding: 15px 40px;
-            background: transparent;
+            background: rgba(0,0,0,0.5);
             border: 2px solid #555;
             color: #fff;
             font-family: 'Courier New', monospace;
@@ -61,7 +60,7 @@ export class EndScreen {
             opacity: 0;
         `;
         this.playBtn.onmouseover = () => { this.playBtn.style.background = '#333'; this.playBtn.style.borderColor = '#fff'; };
-        this.playBtn.onmouseout = () => { this.playBtn.style.background = 'transparent'; this.playBtn.style.borderColor = '#555'; };
+        this.playBtn.onmouseout = () => { this.playBtn.style.background = 'rgba(0,0,0,0.5)'; this.playBtn.style.borderColor = '#555'; };
         this.playBtn.onclick = () => location.reload();
         this.container.appendChild(this.playBtn);
 
@@ -128,12 +127,11 @@ export class EndScreen {
                     width: 100%;
                     height: 100%;
                     object-fit: cover;
-                    filter: grayscale(90%) contrast(1.2) brightness(0.85);
                     display: block;
                 `;
                 frame.appendChild(img);
             } else {
-                frame.style.background = '#0a0000';
+                frame.style.background = 'rgba(10,0,0,0.5)';
                 frame.style.display = 'flex';
                 frame.style.alignItems = 'center';
                 frame.style.justifyContent = 'center';
@@ -211,10 +209,10 @@ export class EndScreen {
         this.textLabel.innerHTML = '';
         const mainTextEl = document.createElement('div');
         mainTextEl.innerText = "AHAHAH, LOOK AT YOUR FUNNY FACE!";
-        mainTextEl.style.cssText = `opacity: 0; transition: opacity 0.5s ease; color: #ff4d4d; font-size: 2.5rem; text-shadow: 0 0 15px rgba(255,77,77,0.5);`;
+        mainTextEl.style.cssText = `opacity: 0; transition: opacity 0.5s ease; color: #ff1a1a; font-weight: 900; font-size: 2.8rem; text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 0 20px #ff0000;`;
         
         const subTextEl = document.createElement('div');
-        subTextEl.style.cssText = `opacity: 0; transition: opacity 0.5s ease; margin-top: 25px; font-size: 1.8rem; color: #ffffff;`;
+        subTextEl.style.cssText = `opacity: 0; transition: opacity 0.5s ease; margin-top: 25px; font-size: 2.0rem; color: #ffcc00; font-weight: 900; text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 0 20px #000;`;
 
         this.textLabel.appendChild(mainTextEl);
         this.textLabel.appendChild(subTextEl);
