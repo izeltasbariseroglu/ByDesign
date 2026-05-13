@@ -34,10 +34,34 @@ export class AudioSystem {
             this._masterGain.gain.value = 1.0;
             this._masterGain.connect(this.ctx.destination);
             this._buildHeartbeat();
+            this._loadBackgroundMusic('/assets/8-Bit-Indigestion_Looping.ogg');
             console.log(`AudioSystem: Initialized (state: ${this.ctx.state}).`);
         } catch (e) {
             console.warn('AudioSystem: Web Audio API not supported —', e);
         }
+    }
+
+    _loadBackgroundMusic(url) {
+        if (!this.ctx) return;
+        fetch(url)
+            .then(res => res.arrayBuffer())
+            .then(buf => this.ctx.decodeAudioData(buf))
+            .then(decoded => {
+                this._bgmSource = this.ctx.createBufferSource();
+                this._bgmSource.buffer = decoded;
+                this._bgmSource.loop = true;
+                
+                this._bgmGain = this.ctx.createGain();
+                // Sound effect volumes are around 0.3 - 0.4.
+                // 50% quieter than sound effects means around 0.15 - 0.2.
+                this._bgmGain.gain.value = 0.15; 
+                
+                this._bgmSource.connect(this._bgmGain);
+                this._bgmGain.connect(this._masterGain);
+                this._bgmSource.start(0);
+                console.log('AudioSystem: Background music loaded and playing in loop.');
+            })
+            .catch(e => console.error('AudioSystem: Failed to load background music', e));
     }
 
     // ─── Garden Ambient Pad ───────────────────────────────────────────────────
